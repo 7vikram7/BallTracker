@@ -121,8 +121,45 @@ def _joint_fit(t: np.ndarray, uv: np.ndarray, tb: float) -> tuple[np.ndarray, fl
     return coef, float(np.sum(res**2))
 
 
+def _joint_sse_batch(t: np.ndarray, uv: np.ndarray, tbs: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """``_joint_fit`` for many contact times at once (same normal equations, batched):
+    returns coefs (k, 5, 2) and SSEs (k,). Live mode spends most of its time here."""
+    d = t[None, :] - tbs[:, None]
+    lm = (d < 0).astype(float)
+    rm = 1.0 - lm
+    A = np.stack([np.ones_like(d), d * lm, d * d * lm, d * rm, d * d * rm], axis=-1)  # (k, m, 5)
+    AtA = np.einsum("kmi,kmj->kij", A, A)
+    AtY = np.einsum("kmi,mc->kic", A, uv)
+    coef = np.linalg.solve(AtA, AtY)  # (k, 5, 2)
+    res = uv[None, :, :] - A @ coef
+    return coef, np.einsum("kmc,kmc->k", res, res)
+
+
 def _best_joint(t: np.ndarray, uv: np.ndarray, lo: float, hi: float, n: int = 13, refine: int = 9):
     """Continuous search for the contact time in [lo, hi] (grid + local refine)."""
+    grid = np.linspace(lo, hi, n)
+    try:
+        coefs, sses = _joint_sse_batch(t, uv, grid)
+    except np.linalg.LinAlgError:
+        return _best_joint_loop(t, uv, lo, hi, n, refine)
+    k = int(np.argmin(sses))  # first minimum, as the sequential search
+    best = (float(grid[k]), float(sses[k]), coefs[k])
+    step = (hi - lo) / max(n - 1, 1)
+    fine = np.linspace(best[0] - step, best[0] + step, refine)
+    fine = fine[(fine >= lo) & (fine <= hi)]
+    if len(fine):
+        try:
+            coefs, sses = _joint_sse_batch(t, uv, fine)
+        except np.linalg.LinAlgError:
+            return _best_joint_loop(t, uv, lo, hi, n, refine)
+        k = int(np.argmin(sses))
+        if sses[k] < best[1]:
+            best = (float(fine[k]), float(sses[k]), coefs[k])
+    return best
+
+
+def _best_joint_loop(t: np.ndarray, uv: np.ndarray, lo: float, hi: float, n: int = 13, refine: int = 9):
+    """Reference (one fit at a time, with the lstsq fallback for degenerate windows)."""
     best = None
     grid = np.linspace(lo, hi, n)
     for tb in grid:

@@ -172,3 +172,13 @@ def test_wasm_detector_matches_python_reference(tmp_path):
             assert np.allclose(a, b, atol=1e-3)
         total += len(exp)
     assert total > 40
+
+
+def test_browser_reducer_is_the_app_reducer():
+    """The phone page serves a copy of the app's reducer; they must not drift apart."""
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    app = (root / "mobile" / "src" / "core" / "reducer.js").read_text()
+    page = (root / "balltracker" / "live" / "static" / "reducer.js").read_text()
+    assert app == page, "copy mobile/src/core/reducer.js to balltracker/live/static/reducer.js"

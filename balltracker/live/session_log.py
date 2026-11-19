@@ -77,7 +77,7 @@ def build_manifest(srv) -> dict:
         "git": git_info(),
         "versions": algorithm_versions(),
         "court": srv.court.to_dict(),
-        "settings": {"record": srv.record, "detector_overrides": srv.detector_overrides, "hold_s": srv.judge.hold_s,
+        "settings": {"record": srv.record, "phone_reduction": getattr(srv, "reduce", True), "detector_overrides": srv.detector_overrides, "hold_s": srv.judge.hold_s,
                      "window_s": srv.judge.window_s, "corroborate": srv.judge.corroborate},
         "summary": None,
     }
@@ -94,9 +94,13 @@ def camera_health(c) -> dict:
     """One camera's numbers, as logged every 5 s and in the final summary."""
     return {
         "camera": c.name, "mode": c.mode, "connected": c.connected, "frames_in": c.frames_in,
+        "reduced": getattr(c, "reduced", False), "skipped_by_phone": getattr(c, "skipped_by_phone", 0),
         "fps_in": round(c.fps_in(), 1), "drops": c.drops, "unsynced": c.unsynced, "seq_gaps": c.seq_gaps,
         "proc_fps": c.stats.get("proc_fps"), "busy": c.stats.get("busy"), "latency_ms": c.stats.get("latency_ms"),
         "bounces": c.stats.get("bounces"), "clock": c.clock.summary(),
+        # server-side load: candidates per frame after the ROI filter, tracks alive, time spent checking tracks
+        "cands_per_frame": c.stats.get("cands_per_frame"), "max_tracks": c.stats.get("max_tracks"),
+        "check_ms_per_s": c.stats.get("check_ms_per_s"),
         "calib_rms_px": c.camera.reprojection_rms_px if c.camera else None,
         "phone": c.phone_stats,
     }

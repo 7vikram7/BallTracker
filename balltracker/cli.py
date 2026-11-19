@@ -261,7 +261,8 @@ def cmd_serve(a: argparse.Namespace) -> None:
     from .live.server import run
 
     run(_court(a.court), Path(a.data), host=a.host, https_port=a.https_port, http_port=a.http_port,
-        tls=not a.no_tls, record=a.record, detector_overrides=_hsv_overrides(a.ball_hsv))
+        tls=not a.no_tls, record=a.record, detector_overrides=_hsv_overrides(a.ball_hsv),
+        reduce=not a.full_rate)
 
 
 def cmd_fakephone(a: argparse.Namespace) -> None:
@@ -407,6 +408,8 @@ def main(argv: list[str] | None = None) -> None:
     s.add_argument("--no-tls", action="store_true", help="plain HTTP only (phone cameras will NOT work)")
     s.add_argument("--record", action="store_true", help="save every received frame for later replay")
     s.add_argument("--ball-hsv", help="ball colour gate Hlo,Slo,Vlo,Hhi,Shi,Vhi")
+    s.add_argument("--full-rate", action="store_true",
+                   help="app phones send every frame (no phone-side reduction): complete data for research")
     s.set_defaults(fn=cmd_serve)
 
     s = sub.add_parser("fakephone", help="stream a video or synthetic scene to the live server like a phone")

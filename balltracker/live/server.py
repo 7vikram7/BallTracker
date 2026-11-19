@@ -124,6 +124,8 @@ class CamState:
     last_ball: dict | None = None
     mode: str = "browser"  # "browser" (JPEG frames) or "edge" (native app sends detections)
     app: dict = field(default_factory=dict)
+    reduced: bool = False  # the phone sends a reduced frame stream (seq jumps are intended)
+    skipped_by_phone: int = 0  # frames the phone chose not to send
 
     def fps_in(self) -> float:
         a = self.arrivals
@@ -135,7 +137,7 @@ class CamState:
 class LiveServer:
     def __init__(self, court: CourtSpec, data_dir: Path, *, record: bool = False,
                  detector_overrides: dict | None = None, https_port: int = 8443, http_port: int = 8080,
-                 queue_frames: int = 45, hold_s: float = 0.6):
+                 queue_frames: int = 45, hold_s: float = 0.6, reduce: bool = True):
         self.court = court
         self.data_dir = Path(data_dir)
         self.calib_dir = self.data_dir / "calibration"
@@ -143,6 +145,10 @@ class LiveServer:
         self.session_dir = self.data_dir / "sessions" / time.strftime("%Y%m%d-%H%M%S")
         self.session_dir.mkdir(parents=True, exist_ok=True)
         self.record = record
+        # Phone-side data reduction (mobile/src/core/reducer.js): still clutter dropped, full frame
+        # rate only around bounces / hits. Off with `bt serve --full-rate` (e.g. to collect
+        # complete per-frame data for research).
+        self.reduce = reduce
         self.detector_overrides = detector_overrides or {}
         self.https_port, self.http_port = https_port, http_port
         self.queue_frames = queue_frames
@@ -221,6 +227,9 @@ class LiveServer:
                 cam.in_q.put(("camera", camera.to_dict() if camera else None), timeout=1.0)
             except queue_mod.Full:
                 log.warning("worker queue full; calibration for %s not delivered yet", cam.name)
+
+    def _config_msg(self, cam: CamState) -> dict:
+        return {"type": "config", "detector": self.edge_detector_config(cam.fps_req), "reduce": {"enabled": cam.reduced}}
 
     def edge_detector_config(self, fps: float) -> dict:
         from ..edge_detection import EdgeDetectorConfig
@@ -408,8 +417,9 @@ class LiveServer:
         cam.clock = ClockSync()
         cam.pings = {}
         cam.arrivals.clear()
-        cam.frames_in = cam.drops = cam.unsynced = cam.seq_gaps = 0
+        cam.frames_in = cam.drops = cam.unsynced = cam.seq_gaps = cam.skipped_by_phone = 0
         cam.last_seq = -1
+        cam.reduced = cam.mode == "edge" and self.reduce and "reduce" in hello  # the app supports it
         cam.phone_stats = {}
         self._ensure_worker(cam)
         # Browser timestamps jitter by a few ms: snap them to the frame grid. App cameras send sensor time.
@@ -424,13 +434,14 @@ class LiveServer:
             cam.recorder = Recorder(self.session_dir / name)
         await ws.send_json({"type": "welcome", "name": name, "calibrated": cam.camera is not None, "proto": PROTO_VERSION})
         if cam.mode == "edge":
-            await ws.send_json({"type": "config", "detector": self.edge_detector_config(cam.fps_req)})
+            await ws.send_json(self._config_msg(cam))
             await ws.send_json(self._calibration_msg(cam))
         self._snapshot_calibration(cam)
         self._log_event({"type": "camera_connected", "camera": name, "device": cam.device, "t": self.now(),
                          "mode": cam.mode, "app": cam.app, "width": cam.width, "height": cam.height,
                          "fps": cam.fps_req, "ts_source": cam.ts_source,
                          "calibrated": cam.camera is not None, "regularize_time": regularize,
+                         "reduced": cam.reduced,
                          "detector_config": self.edge_detector_config(cam.fps_req) if cam.mode == "edge" else None})
         log.info("camera connected: %s (%s) %sx%s", name, cam.device, cam.width, cam.height)
 
@@ -477,7 +488,7 @@ class LiveServer:
                         cam.width, cam.height = int(data.get("width", 0)), int(data.get("height", 0))
                         if cam.mode == "edge" and data.get("fps"):
                             cam.fps_req = float(data["fps"])
-                            await ws.send_json({"type": "config", "detector": self.edge_detector_config(cam.fps_req)})
+                            await ws.send_json(self._config_msg(cam))
                 elif msg.type == WSMsgType.ERROR:
                     break
         finally:
@@ -523,7 +534,10 @@ class LiveServer:
         for f in batch.frames:
             cam.frames_in += 1
             if cam.last_seq >= 0 and f.seq != cam.last_seq + 1:
-                cam.seq_gaps += 1
+                if cam.reduced and f.seq > cam.last_seq:
+                    cam.skipped_by_phone += f.seq - cam.last_seq - 1  # intended: phone-side reduction
+                else:
+                    cam.seq_gaps += 1
             cam.last_seq = f.seq
             if not cam.clock.ready:
                 cam.unsynced += 1
@@ -797,10 +811,11 @@ def draw_court(img: np.ndarray, camera: Camera, court: CourtSpec, color=(0, 0, 2
 
 
 def run(court: CourtSpec, data_dir: Path, *, host: str | None = None, https_port: int = 8443, http_port: int = 8080,
-        tls: bool = True, record: bool = False, detector_overrides: dict | None = None) -> None:
+        tls: bool = True, record: bool = False, detector_overrides: dict | None = None,
+        reduce: bool = True) -> None:
     """Start the server (blocking)."""
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    srv = LiveServer(court, data_dir, record=record, detector_overrides=detector_overrides,
+    srv = LiveServer(court, data_dir, record=record, detector_overrides=detector_overrides, reduce=reduce,
                      https_port=https_port, http_port=http_port)
     app = srv.make_app()
     from .certs import ensure_server_cert, lan_addresses, url_host

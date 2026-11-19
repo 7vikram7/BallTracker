@@ -105,7 +105,8 @@ test('session: applies server config at the real fps, forwards detections and pr
   const states = [];
   const s = new CameraSession({
     native, WebSocketImpl: FakeWebSocket, wallNow: () => wall, onState: (st) => states.push(st),
-    settings: { url: 'ws://x/ws/edge', name: 'cam-b', width: 1920, height: 1080, fps: 240 },
+    // reduction off: this test checks the plumbing (reducer.test.js covers the reduction)
+    settings: { url: 'ws://x/ws/edge', name: 'cam-b', width: 1920, height: 1080, fps: 240, reduce: { enabled: false } },
   });
   await s.start();
   assert.equal(native.started.fps, 240);
@@ -161,9 +162,24 @@ test('simulated camera drives a full session (what Expo Go uses before the nativ
   await s.stop();
   const ws = FakeWebSocket.last();
   const frames = ws.binary().reduce((n, b) => n + new DataView(b).getUint16(8, true), 0);
-  assert.ok(frames > 40, `frames sent: ${frames}`);
+  // ~72 frames captured at 60 fps; the phone-side reducer sends ~30 per second outside bounces.
+  assert.ok(frames > 20 && frames < 60, `frames sent: ${frames}`);
   assert.ok(ws.json().some((m) => m.type === 'stats'));
   assert.equal(cam.timer, null);
+});
+
+test('simulated session with phone-side reduction off sends every frame', async () => {
+  const { SimCamera } = await import('../src/core/simCamera.js');
+  FakeWebSocket.reset();
+  const cam = new SimCamera();
+  const s = new CameraSession({ native: cam, WebSocketImpl: FakeWebSocket,
+    settings: { url: 'ws://x/ws/edge', name: 'sim', width: 1280, height: 720, fps: 60, reduce: { enabled: false } } });
+  await s.start();
+  FakeWebSocket.last().open();
+  await new Promise((r) => setTimeout(r, 1200));
+  await s.stop();
+  const frames = FakeWebSocket.last().binary().reduce((n, b) => n + new DataView(b).getUint16(8, true), 0);
+  assert.ok(frames > 50, `frames sent: ${frames}`);
 });
 
 test('wire format matches the frozen bytes shared with the Python server (tests/golden)', async () => {

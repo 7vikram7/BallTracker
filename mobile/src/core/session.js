@@ -4,6 +4,7 @@
 // connection, and keeps one state object the UI renders. The native module is
 // injected, so tests drive it with a mock (test/mockNative.js).
 
+import { Reducer } from './reducer.js';
 import { EdgeClient } from './edgeClient.js';
 import { ALGO, ALGO_VERSION, base64ToBytes } from './protocol.js';
 
@@ -31,6 +32,7 @@ import { ALGO, ALGO_VERSION, base64ToBytes } from './protocol.js';
  * @property {string} [device]
  * @property {string} [platform]
  * @property {string} [appVersion]
+ * @property {object} [reduce]  phone-side data reduction settings (reducer.js); the server can override
  */
 
 /**
@@ -84,6 +86,7 @@ export class CameraSession {
     /** @type {EdgeClient | null} */
     this.client = null;
     this.detectorConfig = null;
+    this.reducer = new Reducer(settings.reduce);
     this._rate = { t: this.wallNow(), bytes: 0, cands: 0 };
     this._lastStatsSent = 0;
   }
@@ -125,6 +128,7 @@ export class CameraSession {
         name: s.name, device: s.device || 'unknown', platform: s.platform || 'unknown',
         width: cam.width, height: cam.height, fps: cam.fps, ts_source: 'app:sensor',
         algo: ALGO, algo_version: ALGO_VERSION, app_version: s.appVersion || 'dev',
+        reduce: this.reducer.cfg.enabled,
       }),
       onConnection: (c) => this._set({ connection: c }),
       onMessage: (m) => this._onServer(m),
@@ -135,6 +139,10 @@ export class CameraSession {
   async stop() {
     if (this.state.phase === 'idle') return;
     this._set({ phase: 'stopping' });
+    const rest = this.reducer.flush();
+    if (this.client && rest.length && this.state.camera) {
+      this.client.sendDetections({ width: this.state.camera.width, height: this.state.camera.height, frames: rest });
+    }
     this._unsubscribe();
     if (this.client) this.client.stop();
     this.client = null;
@@ -164,6 +172,7 @@ export class CameraSession {
         this._set({ serverName: m.name, calibrated: !!m.calibrated });
         break;
       case 'config':
+        if (m.reduce) this.reducer.configure(m.reduce);
         if (m.detector) {
           // The server owns the detector settings (ball colour etc.); the frame
           // rate is what the camera actually runs at.
@@ -189,10 +198,13 @@ export class CameraSession {
   /** @param {import('./protocol.js').DetBatch} batch */
   _onDetections(batch) {
     if (!this.client) return;
-    this.client.sendDetections(batch);
     let n = 0;
     for (const f of batch.frames) n += f.c.length / 4;
     this._rate.cands += n;
+    // The phone sees every frame; the server gets still clutter removed and full frame rate only
+    // around bounces / hits (see reducer.js).
+    const frames = this.reducer.push(batch.frames);
+    if (frames.length) this.client.sendDetections({ ...batch, frames });
   }
 
   /** @param {{seq: number, t: number, width: number, height: number, jpegBase64: string}} p */
@@ -221,6 +233,7 @@ export class CameraSession {
         fps_capture: st.fpsCapture, fps_processed: st.fpsProcessed, detect_ms: st.detectMs,
         phone_drops: st.dropped, thermal: st.thermal, battery: st.battery,
         link_dropped: cs.droppedFrames, kbps: Math.round(kbps),
+        reduce: { ...this.reducer.stats },
       });
     }
   }

@@ -90,8 +90,14 @@
         <div>
           <b>Only for the BallTracker Cam app</b> (not the phone's camera: it opens nothing there)<br>
           <span class="mut">In the app, tap <i>Scan QR</i> and scan this code, or type:</span><br><span id="appurls"></span>
-          <p class="mut" id="apkline" style="margin:6px 0 0; display:none">Android: install the app from
-            <code id="apkurl"></code> (open it in Chrome on the phone; allow installing from this source).</p>
+        </div>
+      </div>
+      <div class="add" id="apkadd" style="display:none">
+        <img id="qrapk" alt="QR code to download the Android app">
+        <div>
+          <b>Install the Android app</b>: scan with the Android phone's camera (or Google Lens), open the link
+          in <b>Chrome</b>, then allow installing from Chrome. Plain <code>http</code> on purpose: Android's
+          downloader rejects the Mac's own HTTPS certificate.<br><code id="apkurl"></code>
         </div>
       </div>
     </section>
@@ -279,7 +285,11 @@ function connect() {
       if (apps[0]) {
         $("appadd").style.display = "";
         $("appurls").innerHTML = apps.map((u) => `<code>${u.split("//")[1].split("/")[0]}</code>`).join("<br>");
-        if (m.apk) { $("apkline").style.display = ""; $("apkurl").textContent = `http://${apps[0].split("//")[1].split("/")[0]}/app.apk`; }
+        if (m.apk && !$("qrapk").dataset.u) {
+          const apk = `http://${apps[0].split("//")[1].split("/")[0]}/app.apk`;
+          $("apkadd").style.display = ""; $("apkurl").textContent = apk;
+          $("qrapk").src = "/qr.svg?u=" + encodeURIComponent(apk); $("qrapk").dataset.u = apk;
+        }
         if (!$("qrapp").dataset.u) {
           const link = "balltracker://connect?ws=" + encodeURIComponent(apps[0]);
           $("qrapp").src = "/qr.svg?u=" + encodeURIComponent(link); $("qrapp").dataset.u = link;

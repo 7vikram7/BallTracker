@@ -39,6 +39,9 @@ class LiveConfig:
     tracker: TrackerConfig = field(default_factory=TrackerConfig)
     bounce: BounceConfig = field(default_factory=lambda: BounceConfig(bootstrap=80))
     check_every_s: float = 0.08
+    # A track that stayed within this many pixels over the lookback is a still object (clutter, a ball
+    # lying on the court): it cannot bounce, so it is not searched (the search dominates the Mac's load).
+    min_motion_px: float = 8.0
     lookback_s: float = 1.0
     settle_s: float = 0.15
     ball_report_hz: float = 20.0
@@ -184,6 +187,11 @@ class LiveCameraPipeline:
             return []
         sl = _slice_track(tr, t_now - cfg.lookback_s)
         if len(sl.points) < 2 * cfg.bounce.min_side_points:
+            return []
+        us = [p.u for p in sl.points]
+        vs = [p.v for p in sl.points]
+        if max(us) - min(us) + max(vs) - min(vs) < cfg.min_motion_px:
+            self.diag["static_skips"] = self.diag.get("static_skips", 0) + 1
             return []
         assert self.bd is not None
         out = []
