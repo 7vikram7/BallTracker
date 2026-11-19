@@ -39,6 +39,7 @@ import numpy as np
 from aiohttp import WSMsgType, web
 
 from ..events import BounceEvent
+from ..geometry.calib_check import NET_TOP_POINTS, suspect_points
 from ..geometry.camera import CalibrationError, Camera, calibrate_from_points
 from ..geometry.court import CourtSpec, ServiceSide, Side
 from ..sports.pickleball.line_calling import LineCallConfig, PickleballLineCaller, ServeContext
@@ -586,7 +587,10 @@ class LiveServer:
         return web.json_response({
             "spec": c.to_dict(), "half_w": c.half_w, "half_l": c.half_l, "kitchen": c.kitchen_depth,
             "lines": [{"name": s.name, "x0": s.rect.x0, "x1": s.rect.x1, "y0": s.rect.y0, "y1": s.rect.y1} for s in c.lines()],
-            "keypoints": {k: list(v) for k, v in c.keypoints().items()},
+            # Net-top points are left out of the click list: on a portable net the posts stand outside
+            # the sidelines and higher than the net, and clicking them spoiled calibrations (field test 2).
+            "keypoints": {k: list(v) for k, v in c.keypoints().items()
+                          if request.query.get("all") or k not in NET_TOP_POINTS},
         })
 
     async def api_frame(self, request: web.Request) -> web.Response:
@@ -631,15 +635,20 @@ class LiveServer:
             return web.json_response({"ok": False, "error": str(e)}, status=400)
         reproj = camera.project(obj)
         errs = np.linalg.norm(reproj - imgp, axis=1)
+        try:
+            suspects = suspect_points(names, obj, imgp, (int(size[0]), int(size[1])))
+        except CalibrationError:
+            suspects = []
         self.set_camera_model(cam, camera)
         pos = camera.position
         self._log_event({"type": "calibrated", "camera": cam.name, "t": self.now(), "rms_px": camera.reprojection_rms_px,
                          "points": len(names), "image_size": [int(size[0]), int(size[1])],
                          "clicked": {k: list(map(float, pts[k])) for k in names},
-                         "per_point_px": {k: float(e) for k, e in zip(names, errs)}, "camera_model": camera.to_dict()})
+                         "per_point_px": {k: float(e) for k, e in zip(names, errs)}, "camera_model": camera.to_dict(),
+                         "suspects": suspects})
         return web.json_response({
             "ok": True, "rms_px": camera.reprojection_rms_px, "points": len(names),
-            "per_point_px": {k: float(e) for k, e in zip(names, errs)},
+            "per_point_px": {k: float(e) for k, e in zip(names, errs)}, "suspects": suspects,
             "camera_position_m": [float(x) for x in pos], "focal_px": camera.focal_px,
             "hfov_deg": float(np.degrees(2 * np.arctan(camera.image_size[0] / 2 / camera.focal_px))),
         })
@@ -781,6 +790,7 @@ def decision_dict(d: Decision, latency_s: float | None) -> dict:
         "n_reports": d.diagnostics.get("n"), "chi2": d.diagnostics.get("chi2"),
         "inflation": d.diagnostics.get("inflation"), "suppressed": d.suppressed,
         "unconfirmed_by": d.diagnostics.get("unconfirmed_by"),
+        "play": d.diagnostics.get("play"), "h_in_mps": d.diagnostics.get("h_in_mps"),
     }
     if c is not None:
         obj.update(result=c.result.value, p_out=c.p_out, line=c.nearest_line,

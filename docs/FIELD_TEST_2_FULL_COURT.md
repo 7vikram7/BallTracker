@@ -10,6 +10,9 @@ cameras and called correctly, live, with phones finding the ball themselves?
   2. Join it from the Mac and every other phone. Older Androids that can't see it need
      **Maximize Compatibility** (2.4 GHz) turned on in the hotspot settings.
   3. **Only then** start `bt serve`: the Mac's address changes (172.20.10.x) and the QR code follows it.
+     If the Mac gets only a `192.0.0.x` address, the phone's carrier is IPv6-only: the server then
+     uses IPv6 addresses, but the hotspot phone itself cannot be a camera. Better: use an Android
+     phone's hotspot (it gives normal addresses).
   4. Phones show the certificate warning again (new address) unless the CA certificate is installed.
   * An iPhone hotspot takes about 5 devices: the Mac + 3 other cameras when the hotspot phone is the 4th.
   * Use **On this phone** mode on every camera: video mode (about 7 MB/s per phone) would overload a hotspot.
@@ -18,8 +21,9 @@ cameras and called correctly, live, with phones finding the ball themselves?
 * **Android:** be on the hotspot (Wi-Fi icon showing, not just mobile data) and open links in
   **Chrome**, not the phone maker's browser; at the certificate warning: *Advanced › Proceed*.
 * Charge everything; take power banks and the Mac charger. Tripods/clamps reaching 2 m or more.
-* Android phones: install the app at home, in Chrome on the phone: `http://<mac-ip>:8080/app.apk`
-  (the dashboard shows the link). Allow "install unknown apps" for Chrome when asked.
+* Android phones: install the app at home: scan the dashboard's **Install the Android app** QR
+  (plain `http`; the https link fails in Android's downloader), or send the APK file over WhatsApp
+  as a document. Allow "install unknown apps" when asked.
   If the app misbehaves, the web link works on Android too.
 
 ## At the court
@@ -41,8 +45,10 @@ cameras and called correctly, live, with phones finding the ball themselves?
    * Android with the app: open it, **Scan QR** on the dashboard's *app* code (or type the Mac's
      address), name, 1280×720, 30 or 60 fps, Start, then tap the exposure button to
      **Shutter 1/1000** in daylight.
-4. **Calibrate** each camera on the dashboard (net-post tops help most). Aim for RMS < 2 px; redo
-   anything above 3 px. Then **Check**: the drawn lines must sit on the real lines.
+4. **Calibrate** each camera on the dashboard: ground points only (outer corners of the line
+   crossings), near and far, left and right. Aim for RMS < 2 px; redo anything above 3 px, and
+   re-click any point the dashboard names as probably mis-clicked. Then **Check**: the drawn lines
+   must sit on the real lines. (Set the exposure first: Shutter 1/1000 in daylight.)
 5. Glance at each card: *processed* ≈ *in*, drops 0, clutter < 2.5, rtt < 20 ms.
 
 ## What to do (about 60 minutes)

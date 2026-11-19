@@ -121,7 +121,7 @@
     <div class="img"><canvas id="calc"></canvas><canvas id="loupe" width="180" height="180"></canvas></div>
     <div class="side">
       <b id="caltitle">Calibrate</b>
-      <p class="mut" style="margin:6px 0">Click each court point on the image as accurately as you can (use the magnifier). Skip points you can't see. At least 6 points, spread over the image; net-post tops help most.</p>
+      <p class="mut" style="margin:6px 0">Click each court point on the image as accurately as you can (use the magnifier). Skip points you can't see. At least 6 points, spread over the image (near and far side, left and right). Click where the <b>outer edges</b> of the lines meet.</p>
       <div id="minicourt"></div>
       <div id="kplist"></div>
       <div class="grp" style="margin-top:10px">
@@ -385,7 +385,9 @@ $("caldone").onclick = async () => {
   if (!j.ok) { $("calres").textContent = "Failed: " + j.error; return; }
   const worst = Object.entries(j.per_point_px).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, e]) => `${k} ${e.toFixed(1)} px`).join(", ");
   const p = j.camera_position_m;
+  const sus = (j.suspects || []).map((s) => `${s.name} (${s.err_px} px off; without it the rest fit to ${s.rms_without_px} px)`);
   $("calres").textContent = `Saved. RMS ${j.rms_px.toFixed(2)} px over ${j.points} points (good: < 2 px).\nWorst: ${worst}\n` +
+    (sus.length ? `Probably mis-clicked, re-click or skip: ${sus.join("; ")}\n` : "") +
     `Camera at x ${p[0].toFixed(2)}, y ${p[1].toFixed(2)}, height ${p[2].toFixed(2)} m · lens ${j.hfov_deg.toFixed(0)}° wide.\n` +
     `Use "Check" on the camera card to see the court drawn over the live image.`;
   thumbs[cal.name] = "overlay";

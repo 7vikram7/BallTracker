@@ -66,6 +66,9 @@ def main() -> None:
     session = str(data.get("session_id", ""))[:8]
     if kind == "prompt":
         prompt = (data.get("prompt") or "").strip()
+        # Automated messages (background-task notifications, system reminders) are not requests.
+        if prompt.startswith("<") and any(t in prompt[:200] for t in ("<task-notification", "<system-reminder", "<command-")):
+            return
         if len(prompt.split()) < MIN_PROMPT_WORDS:
             return
         quoted = "\n".join("> " + ln for ln in prompt.splitlines())

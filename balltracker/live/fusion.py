@@ -33,6 +33,7 @@ import numpy as np
 from ..events import BounceEvent, CallResult, LineCallEvent, Point3, Provenance
 from ..geometry.court import CourtSpec
 from ..sports.pickleball.line_calling import PickleballLineCaller, ServeContext
+from .playstate import PlayConfig, PlayState
 
 ALGO = "bounce_fusion"
 ALGO_VERSION = "0.1.0"
@@ -98,8 +99,13 @@ class LiveJudge:
 
     def __init__(self, court: CourtSpec, caller: PickleballLineCaller | None = None,
                  window_s: float = 0.08, hold_s: float = 0.6,
-                 can_see: Callable[[str, float, float], bool] | None = None, corroborate: bool = True):
+                 can_see: Callable[[str, float, float], bool] | None = None, corroborate: bool = True,
+                 play: PlayConfig | None = None, max_single_camera_std_m: float = 0.15):
         self.court = court
+        self.play = PlayState(play)  # is the ball in play? (see playstate.py)
+        # One camera alone may announce only when it measures the bounce well across the line
+        # (field test 2: a camera 16 m away along the court gave +-25 cm with possible bias).
+        self.max_single_camera_std_m = max_single_camera_std_m
         self.can_see = can_see
         self.corroborate = corroborate
         self._expected: set[str] = set()
@@ -148,10 +154,26 @@ class LiveJudge:
             further = abs(b.position.y) > abs(prev.position.y)
             if same_half and further and 0 < b.t - prev.t < self.caller.cfg.secondary_window_s:
                 self._last = b
+                self.play.assess(b, list(g.events), False)  # keep the bounce chain for the play state
                 return Decision(b, None, list(g.events), diag, suppressed="secondary bounce")
         self._last = b
         serve, self.serve = self.serve, None
+        ps = self.play.assess(b, list(g.events), serve is not None) if self.play.cfg.enabled else None
+        if ps is not None:
+            diag = {**diag, "play": ps["play"], "h_in_mps": ps["h_in_mps"]}
+            if ps["suppress"]:
+                return Decision(b, None, list(g.events), diag, suppressed=ps["suppress"])
         call = self.caller.call(b, serve)
+        if ps is not None and not ps["announce_ok"] and call.announce:
+            # A bounce, but not of a ball in play (dead ball / not clearly a shot): stay silent.
+            call = call.model_copy(update={"result": CallResult.UNCERTAIN, "announce": False, "call_text": None})
+        if call.announce and len(b.camera_ids) == 1 and self.max_single_camera_std_m:
+            line = call.nearest_line or ""
+            C = np.asarray(b.cov_xy, float)
+            std_n = float(np.sqrt(C[0, 0] if ("sideline" in line or "centre" in line or "center" in line) else C[1, 1]))
+            if std_n > self.max_single_camera_std_m:
+                call = call.model_copy(update={"result": CallResult.UNCERTAIN, "announce": False, "call_text": None})
+                diag = {**diag, "single_camera_std_cm": round(100 * std_n, 1)}
         if call.announce and self.corroborate and self.can_see is not None:
             seeing = {c for c in self._expected if self.can_see(c, b.position.x, b.position.y)}
             confirmed = seeing & set(b.camera_ids)

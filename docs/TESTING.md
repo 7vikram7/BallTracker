@@ -45,3 +45,14 @@ and committed, so the server works without a compiler. After changing the C++:
 scripts/build_wasm.sh        # needs wasi-sdk in ~/.local/toolchains (or set WASI_SDK)
 .venv/bin/python -m pytest -q tests/test_edge.py -k wasm
 ```
+
+## Added after field test 2 (2026-11-19)
+
+| Test | What it guards |
+|---|---|
+| `tests/test_playstate.py` | Play state: rallies called, second bounces / dead balls / slow tosses silent, feeding drills still called. |
+| `tests/test_samples.py` (slow) | Replays 60 s of real field data (`data/samples/fieldtest2_60s`): every judged bounce has a play label; no announced OUT from a lone imprecise camera or a dead ball. |
+| `tests/test_autocal.py` | Experimental auto-calibration on synthetic courts (snap from 4 rough clicks < 4 px; full auto up to the A/B ambiguity). |
+| `mobile/test/reducer.test.js` | Phone-side reduction: full rate around a bounce, base rate elsewhere, still clutter dropped, pass-through when off. |
+| `tests/test_edge.py::test_browser_reducer_is_the_app_reducer` | The browser copy of the reducer equals the app's. |
+| `tests/test_edge.py::test_app_javascript_core_against_live_server` (slow) | The app's JS (now with the reducer) against the real server: every bounce called, < 2 cm median. |

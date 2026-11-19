@@ -414,6 +414,7 @@ class BounceDetector:
             supporting_observations=obs_ids,
             provenance=Provenance(algorithm=ALGO, version=ALGO_VERSION,
                                   params={**self.provenance().params,
-                                          "physics": {k: (round(v, 3) if isinstance(v, float) else v) for k, v in physics.items()
-                                                      if k not in ("v_in", "v_out")}}),
+                                          "physics": {k: (round(v, 3) if isinstance(v, float)
+                                                          else [round(float(x), 3) for x in v] if k in ("v_in", "v_out")
+                                                          else v) for k, v in physics.items()}}),
         )

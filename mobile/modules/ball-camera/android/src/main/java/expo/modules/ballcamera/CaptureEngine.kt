@@ -10,6 +10,7 @@ import android.hardware.camera2.CaptureRequest
 import android.os.BatteryManager
 import android.os.Build
 import android.os.PowerManager
+import android.os.Process
 import android.os.SystemClock
 import android.util.Base64
 import android.util.Range
@@ -24,6 +25,7 @@ import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
+import androidx.camera.core.resolutionselector.AspectRatioStrategy
 import androidx.camera.core.resolutionselector.ResolutionSelector
 import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.lifecycle.ProcessCameraProvider
@@ -58,8 +60,15 @@ data class StartConfig(
 object CaptureEngine {
   var emit: ((String, Map<String, Any?>) -> Unit)? = null
 
-  private val analysisExecutor = Executors.newSingleThreadExecutor()
-  private val jpegExecutor = Executors.newSingleThreadExecutor()
+  // Field test 2: a flagship Samsung took 12-27 ms per frame (iPhone 17: 4 ms). A default-priority
+  // thread can be scheduled on the slow efficiency cores; ask for display-level priority so the
+  // detector runs on the fast cores. Previews are not urgent: background priority.
+  private val analysisExecutor = Executors.newSingleThreadExecutor { r ->
+    Thread({ Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_DISPLAY); r.run() }, "balltracker-detect")
+  }
+  private val jpegExecutor = Executors.newSingleThreadExecutor { r ->
+    Thread({ Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND); r.run() }, "balltracker-preview")
+  }
   private var detector: NativeDetector? = null
   private var provider: ProcessCameraProvider? = null
   private var camera: Camera? = null
@@ -132,7 +141,12 @@ object CaptureEngine {
           d.configure(c.detector ?: emptyMap(), c.fps)
         }
         val size = Size(c.width, c.height)
+        // Ask for the requested aspect ratio (16:9 for 1280x720 / 1920x1080). Without it CameraX picked
+        // 1920x1440 (4:3) on the Samsung: 33% more pixels to process and a different field of view.
+        val aspect = if (c.width * 3 == c.height * 4) AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY
+          else AspectRatioStrategy.RATIO_16_9_FALLBACK_AUTO_STRATEGY
         val resolution = ResolutionSelector.Builder()
+          .setAspectRatioStrategy(aspect)
           .setResolutionStrategy(ResolutionStrategy(size, ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER))
           .build()
         val ab = ImageAnalysis.Builder()

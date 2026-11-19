@@ -14,12 +14,21 @@ stream to the Mac from a web page, calls are spoken on a dashboard. See
 ## Setup (macOS, Intel or Apple Silicon)
 
 ```bash
+git clone <repo> && cd BallTracker
 /usr/local/bin/python3.12 -m venv .venv      # any Python >= 3.12
 .venv/bin/pip install -e ".[dev,live]"
 source .venv/bin/activate                    # gives you the `bt` command
 pytest -m "not slow"                         # fast tests (~4 min on a 2020 Intel MBP)
-pytest                                       # includes the end-to-end render test
+pytest                                       # everything: end-to-end, real-sample replay, browser test
 ```
+
+Optional for some tests: Node ≥ 22 (the app's JavaScript core: `node --test mobile/test/*.test.js`),
+Google Chrome (the browser end-to-end test; skipped without it). Real field data for the tests ships
+in [data/samples/](data/samples/README.md); full sessions are not in git.
+
+Where to read: [docs/DECISIONS.md](docs/DECISIONS.md) (what was decided and why),
+[docs/evolution/LOG.md](docs/evolution/LOG.md) (request/outcome history, written by a Claude Code
+hook), [docs/FIELD_TEST_2_RESULTS.md](docs/FIELD_TEST_2_RESULTS.md) (latest field results).
 
 ## Try it without footage (synthetic)
 
@@ -55,6 +64,7 @@ Court configs: `configs/court_full.yaml` (regulation), `configs/court_half_scale
 
 ```bash
 bt serve                 # then open http://localhost:8080/dashboard on the Mac
+                         # (--record: also keep previews; --full-rate: app phones send every frame)
                          # and https://<mac-ip>:8443/phone on each phone
                          # (the phone page finds the ball on the phone by default: C++ -> WebAssembly)
 bt live-demo             # no phones: server + simulated phones, scored vs truth
