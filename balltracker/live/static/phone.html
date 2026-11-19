@@ -1,0 +1,364 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>BallTracker camera</title>
+<style>
+  :root { --bg:#0e1116; --fg:#e8edf3; --mut:#93a1b3; --acc:#3d8bfd; --ok:#2fbf71; --bad:#e5484d; --warn:#f5a524; --card:#171c24; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; height:100%; background:var(--bg); color:var(--fg); font:16px/1.4 -apple-system, system-ui, sans-serif; }
+  #setup { max-width:520px; margin:0 auto; padding:20px 16px 40px; }
+  h1 { font-size:22px; margin:8px 0 4px; }
+  p.mut, .mut { color:var(--mut); font-size:14px; }
+  label { display:block; margin:14px 0 6px; font-weight:600; }
+  input, select { width:100%; font-size:17px; padding:10px 12px; border-radius:10px; border:1px solid #2a3240; background:var(--card); color:var(--fg); }
+  .row { display:flex; gap:10px; } .row > div { flex:1; }
+  button { font-size:18px; padding:14px 16px; border-radius:12px; border:0; background:var(--acc); color:white; font-weight:700; width:100%; margin-top:22px; }
+  button.sec { background:#2a3240; }
+  #live { position:fixed; inset:0; display:none; background:#000; }
+  #live video { position:absolute; inset:0; width:100%; height:100%; object-fit:contain; background:#000; }
+  #hud { position:absolute; left:0; right:0; top:0; padding:calc(env(safe-area-inset-top) + 6px) 10px 8px; background:linear-gradient(#000c, #0000); font-size:13px; display:flex; flex-wrap:wrap; gap:4px 12px; }
+  #hud b { font-weight:700; }
+  .dot { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:5px; vertical-align:middle; background:var(--bad); }
+  .dot.ok { background:var(--ok); } .dot.warn { background:var(--warn); }
+  #bar { position:absolute; left:0; right:0; bottom:0; padding:8px 10px calc(env(safe-area-inset-bottom) + 8px); display:flex; gap:8px; background:linear-gradient(#0000, #000c); }
+  #bar button { margin:0; padding:10px; font-size:15px; }
+  #flash { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:22vw; font-weight:900; color:white; background:#e5484dcc; opacity:0; transition:opacity .25s; pointer-events:none; }
+  #err { color:var(--bad); margin-top:12px; white-space:pre-wrap; }
+</style>
+</head>
+<body>
+<div id="setup">
+  <h1>BallTracker camera</h1>
+  <p class="mut">This phone becomes one camera. Mount it steadily, in <b>landscape</b>, with the court lines in view. Keep this page open; the screen stays on while streaming.</p>
+  <label for="name">Camera name</label>
+  <input id="name" autocomplete="off" placeholder="e.g. baseline-A-left">
+  <p class="mut">Use the same name each time for the same mounting position: the calibration is saved under it.</p>
+  <div class="row">
+    <div><label for="res">Resolution</label>
+      <select id="res"><option value="1280x720">1280 × 720</option><option value="1920x1080">1920 × 1080</option><option value="960x540">960 × 540</option></select></div>
+    <div><label for="fps">Frame rate</label>
+      <select id="fps"><option>60</option><option>30</option><option>120</option></select></div>
+  </div>
+  <label for="mode">Ball detection</label>
+  <select id="mode">
+    <option value="edge">On this phone (sends ball positions + a picture every 2 s, ~0.05 MB/s)</option>
+    <option value="video">On the Mac (sends video, ~5 MB/s)</option>
+  </select>
+  <p class="mut" id="modehint">On this phone: the Mac can handle many more cameras and Wi-Fi isn't a bottleneck.</p>
+  <label for="cam">Lens</label>
+  <select id="cam"><option value="">Back camera (default)</option></select>
+  <label for="q">JPEG quality <span id="qv" class="mut"></span> <span class="mut">(video mode; previews in phone mode)</span></label>
+  <input id="q" type="range" min="0.5" max="0.95" step="0.05" value="0.8">
+  <button id="start">Start streaming</button>
+  <div id="err"></div>
+  <p class="mut" style="margin-top:24px">If the browser warned about the certificate, that is expected (the Mac signs its own). For a warning-free setup, install the certificate from the dashboard's "Add a phone" box.</p>
+</div>
+
+<div id="live">
+  <video id="video" playsinline muted autoplay></video>
+  <div id="hud">
+    <span><span id="cdot" class="dot"></span><b id="cname"></b> <span id="cstate">connecting…</span></span>
+    <span>capture <b id="fcap">–</b> fps</span>
+    <span>sent <b id="fsent">–</b></span>
+    <span id="detbox" style="display:none">detect <b id="fdet">–</b></span>
+    <span id="upbox" style="display:none">uplink <b id="fup">–</b></span>
+    <span>server <b id="fproc">–</b></span>
+    <span>dropped <b id="fdrop">0</b></span>
+    <span>sync <b id="rtt">–</b></span>
+    <span id="calib" class="mut">not calibrated</span>
+    <span id="res2" class="mut"></span>
+  </div>
+  <div id="flash">OUT</div>
+  <div id="bar">
+    <button class="sec" id="stop">Stop</button>
+  </div>
+</div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const clockNow = () => (performance.timeOrigin + performance.now()) / 1000;  // seconds, phone clock
+
+const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } },
+                set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+$("name").value = store.get("bt_name", "cam-" + Math.random().toString(36).slice(2, 6));
+$("res").value = store.get("bt_res", "1280x720");
+$("fps").value = store.get("bt_fps", "60");
+$("q").value = store.get("bt_q", "0.8");
+const showQ = () => $("qv").textContent = Number($("q").value).toFixed(2);
+$("q").oninput = showQ; showQ();
+
+let ws = null, stream = null, running = false, wakeLock = null;
+let W = 0, H = 0, seq = 0, inflight = 0, dropped = 0, sentCount = 0, capCount = 0;
+let tsSource = "unknown", lags = [], canvas = null, ctx = null, lastStats = performance.now();
+// On-phone detection ("edge" mode): C++ detector compiled to WebAssembly, run in a Web Worker.
+const edgeSupported = typeof WebAssembly === "object" && typeof Worker === "function" &&
+  typeof OffscreenCanvas === "function" && typeof createImageBitmap === "function";
+let mode = "video", worker = null, workerReady = false, workerBusy = 0, detConfig = null;
+let batch = [], batchTimer = null, procCount = 0, detUs = 0, bytesSent = 0, lastPreview = -1e9, previewBusy = false;
+if (!edgeSupported) {
+  $("mode").value = "video"; $("mode").options[0].disabled = true;
+  $("modehint").textContent = "This browser can't run the detector on the phone; video mode only.";
+} else {
+  $("mode").value = store.get("bt_mode", "edge");
+}
+$("mode").onchange = () => {
+  $("modehint").textContent = $("mode").value === "edge"
+    ? "On this phone: the Mac can handle many more cameras and Wi-Fi isn't a bottleneck."
+    : "On the Mac: simplest, but each phone sends several MB/s and uses about one Mac core.";
+};
+
+async function listCameras() {
+  try {
+    const devs = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === "videoinput");
+    const sel = $("cam"); const keep = store.get("bt_cam", "");
+    for (const d of devs) {
+      if (!d.label) continue;
+      const o = document.createElement("option"); o.value = d.deviceId; o.textContent = d.label; sel.appendChild(o);
+    }
+    if (keep && [...sel.options].some((o) => o.value === keep)) sel.value = keep;
+  } catch {}
+}
+listCameras();
+
+function setState(text, cls) { $("cstate").textContent = text; $("cdot").className = "dot " + (cls || ""); }
+
+function connect() {
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+  ws = new WebSocket(`${proto}://${location.host}/ws/${mode === "edge" ? "edge" : "camera"}`);
+  ws.binaryType = "arraybuffer";
+  ws.onopen = () => {
+    setState("connected", "warn");
+    const hello = { type: "hello", proto: 1, name: $("name").value, device: navigator.userAgent,
+      width: W, height: H, fps: Number($("fps").value), ts_source: tsSource };
+    if (mode === "edge") Object.assign(hello, { proto: 2, mode: "edge", platform: "browser", app_version: "web",
+      algo: "edge_color_motion", algo_version: "1.0.0" });
+    ws.send(JSON.stringify(hello));
+  };
+  ws.onmessage = (ev) => {
+    const m = JSON.parse(ev.data);
+    if (m.type === "ping") { ws.send(JSON.stringify({ type: "pong", id: m.id, tp: clockNow() })); return; }
+    if (m.type === "welcome") { $("cname").textContent = m.name; setState("streaming", "ok"); }
+    else if (m.type === "status") {
+      $("fproc").textContent = m.proc_fps != null ? m.proc_fps.toFixed(0) + " fps" : "–";
+      $("rtt").textContent = m.rtt_ms != null ? m.rtt_ms.toFixed(0) + " ms" : "–";
+      $("calib").textContent = m.calibrated ? "calibrated" : "not calibrated";
+      $("calib").style.color = m.calibrated ? "var(--ok)" : "var(--warn)";
+    } else if (m.type === "call") { flash(m.text || "OUT"); }
+    else if (m.type === "config" && m.detector) {
+      detConfig = m.detector;
+      if (worker) worker.postMessage({ type: "config", config: detConfig });
+    }
+  };
+  ws.onclose = () => { setState("disconnected, retrying…", ""); if (running) setTimeout(connect, 1000); };
+  ws.onerror = () => {};
+}
+
+function flash(text) { const f = $("flash"); f.textContent = text; f.style.opacity = 1; setTimeout(() => f.style.opacity = 0, 900); }
+
+// Capture time for a frame, on the phone clock (seconds).
+function frameTime(now, meta) {
+  if (meta && typeof meta.captureTime === "number" && meta.captureTime > 0) {
+    tsSource = "captureTime"; return (performance.timeOrigin + meta.captureTime) / 1000;
+  }
+  if (meta && typeof meta.mediaTime === "number" && typeof meta.presentationTime === "number") {
+    // mediaTime is regular (sensor timeline) but on its own clock. Map it with the smallest
+    // observed presentation lag over the last few seconds (= least pipeline delay).
+    const pres = (performance.timeOrigin + meta.presentationTime) / 1000;
+    const lag = pres - meta.mediaTime;
+    if (lags.length && Math.abs(lag - lags[lags.length - 1]) > 1.0) lags = [];  // media timeline restarted
+    lags.push(lag); if (lags.length > 300) lags.shift();
+    tsSource = "mediaTime"; return meta.mediaTime + Math.min(...lags);
+  }
+  tsSource = "callback"; return (performance.timeOrigin + now) / 1000;
+}
+
+function sendFrame(t) {
+  if (!ws || ws.readyState !== 1 || inflight >= 2 || ws.bufferedAmount > 3e6) { dropped++; return; }
+  const vw = $("video").videoWidth, vh = $("video").videoHeight;
+  if (!vw || !vh) return;
+  if (vw !== W || vh !== H) {
+    W = vw; H = vh; canvas.width = W; canvas.height = H; $("res2").textContent = `${W}×${H}`;
+    ws.send(JSON.stringify({ type: "hello", width: W, height: H }));
+  }
+  inflight++;
+  ctx.drawImage($("video"), 0, 0, W, H);
+  const s = seq++, w = W, h = H;
+  canvas.toBlob(async (blob) => {
+    try {
+      if (!blob || !ws || ws.readyState !== 1) return;
+      const jpg = new Uint8Array(await blob.arrayBuffer());
+      const out = new Uint8Array(20 + jpg.length), dv = new DataView(out.buffer);
+      out.set([66, 84, 70, 49], 0);  // "BTF1"
+      dv.setUint32(4, s, true); dv.setFloat64(8, t, true); dv.setUint16(16, w, true); dv.setUint16(18, h, true);
+      out.set(jpg, 20);
+      ws.send(out.buffer); sentCount++;
+    } finally { inflight--; }
+  }, "image/jpeg", Number($("q").value));
+}
+
+// ---- on-phone detection ------------------------------------------------------------
+function startWorker() {
+  return new Promise((resolve, reject) => {
+    worker = new Worker("/static/edge-worker.js");
+    worker.onmessage = (e) => {
+      const m = e.data;
+      if (m.type === "ready") { workerReady = true; resolve(); }
+      else if (m.type === "error") { $("err").textContent = "Detector: " + m.message; reject(new Error(m.message)); }
+      else if (m.type === "det") {
+        workerBusy = Math.max(0, workerBusy - 1);
+        if (m.skipped) return;
+        procCount++; detUs += m.us;
+        batch.push({ seq: m.seq, t: m.t, c: m.c, w: m.w, h: m.h });
+      }
+    };
+    worker.onerror = (e) => { $("err").textContent = "Detector failed to start: " + (e.message || e); reject(e); };
+    worker.postMessage({ type: "init", wasmUrl: "/static/ballcore.wasm",
+      config: detConfig || { fps: Number($("fps").value) } });
+  });
+}
+
+function packDetections(frames) {  // "BTD1" (balltracker/live/protocol.py, mobile/src/core/protocol.js)
+  let size = 10;
+  for (const f of frames) size += 14 + 16 * Math.min(255, f.c.length / 4);
+  const buf = new ArrayBuffer(size), dv = new DataView(buf);
+  [66, 84, 68, 49].forEach((b, i) => dv.setUint8(i, b));
+  dv.setUint16(4, frames[0].w, true); dv.setUint16(6, frames[0].h, true); dv.setUint16(8, frames.length, true);
+  let o = 10;
+  for (const f of frames) {
+    const n = Math.min(255, f.c.length / 4);
+    dv.setUint32(o, f.seq >>> 0, true); dv.setFloat64(o + 4, f.t, true); dv.setUint8(o + 12, n); dv.setUint8(o + 13, 0);
+    o += 14;
+    for (let i = 0; i < n * 4; i++) { dv.setFloat32(o, f.c[i], true); o += 4; }
+  }
+  return buf;
+}
+
+function flushBatch() {
+  if (!batch.length || !ws || ws.readyState !== 1) { if (batch.length > 600) batch = []; return; }
+  // One message per frame size (a resolution change mid-batch is rare).
+  const w = batch[0].w, h = batch[0].h, now = batch.filter((f) => f.w === w && f.h === h);
+  batch = batch.filter((f) => f.w !== w || f.h !== h);
+  const buf = packDetections(now);
+  ws.send(buf); bytesSent += buf.byteLength; sentCount += now.length;
+}
+
+function sendPreview(t) {  // full-size JPEG once a second: dashboard thumbnail + calibration snapshot
+  if (previewBusy || !ws || ws.readyState !== 1) return;
+  const v = $("video"), w = v.videoWidth, h = v.videoHeight;
+  if (!w || !h) return;
+  previewBusy = true;
+  if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+  ctx.drawImage(v, 0, 0, w, h);
+  const s = seq;
+  canvas.toBlob(async (blob) => {
+    try {
+      if (!blob || !ws || ws.readyState !== 1) return;
+      const jpg = new Uint8Array(await blob.arrayBuffer());
+      const out = new Uint8Array(20 + jpg.length), dv = new DataView(out.buffer);
+      out.set([66, 84, 80, 49], 0);  // "BTP1"
+      dv.setUint32(4, s, true); dv.setFloat64(8, t, true); dv.setUint16(16, w, true); dv.setUint16(18, h, true);
+      out.set(jpg, 20);
+      ws.send(out.buffer); bytesSent += out.length;
+    } finally { previewBusy = false; }
+  }, "image/jpeg", Math.min(0.7, Number($("q").value)));
+}
+
+async function edgeFrame(t) {
+  const v = $("video");
+  // Up to 2 frames queued for the detector: absorbs bursts without long gaps (a gap next to a bounce
+  // removes the points the bounce fit needs). Beyond that, drop: the detector can't keep up.
+  if (!workerReady || workerBusy >= 2) { dropped++; return; }
+  if (v.videoWidth !== W || v.videoHeight !== H) {
+    W = v.videoWidth; H = v.videoHeight; $("res2").textContent = `${W}×${H}`;
+    if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: "hello", width: W, height: H, fps: Number($("fps").value) }));
+  }
+  workerBusy++;
+  try {
+    const bmp = await createImageBitmap(v);
+    worker.postMessage({ type: "frame", bitmap: bmp, seq: seq++, t }, [bmp]);
+  } catch (e) { workerBusy--; dropped++; }
+  if (t - lastPreview >= 2.0) { lastPreview = t; sendPreview(t); }
+}
+
+function stats() {
+  const now = performance.now(), dt = (now - lastStats) / 1000;
+  if (dt < 1) return;
+  const cap = capCount / dt, sent = sentCount / dt;
+  $("fcap").textContent = cap.toFixed(0); $("fsent").textContent = sent.toFixed(0); $("fdrop").textContent = dropped;
+  if (mode === "edge") {
+    const proc = procCount / dt, dms = procCount ? detUs / procCount / 1000 : 0, kbps = bytesSent * 8 / 1000 / dt;
+    $("fdet").textContent = `${dms.toFixed(1)} ms`; $("fup").textContent = `${kbps.toFixed(0)} kbit/s`;
+    if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: "stats", fps_capture: cap, fps_processed: proc,
+      detect_ms: dms, phone_drops: dropped, kbps, ts_source: tsSource, width: W, height: H }));
+    procCount = 0; detUs = 0; bytesSent = 0;
+  } else if (ws && ws.readyState === 1) {
+    ws.send(JSON.stringify({ type: "stats", cap_fps: cap, sent_fps: sent, dropped, ts_source: tsSource, width: W, height: H }));
+  }
+  capCount = 0; sentCount = 0; lastStats = now;
+}
+
+function onVideoFrame(now, meta) {
+  if (!running) return;
+  $("video").requestVideoFrameCallback(onVideoFrame);
+  capCount++;
+  const t = frameTime(now, meta);
+  if (mode === "edge") edgeFrame(t); else sendFrame(t);
+  stats();
+}
+
+async function keepAwake() {
+  try { if ("wakeLock" in navigator) wakeLock = await navigator.wakeLock.request("screen"); } catch {}
+}
+document.addEventListener("visibilitychange", () => { if (running && document.visibilityState === "visible") keepAwake(); });
+
+$("start").onclick = async () => {
+  $("err").textContent = "";
+  const [rw, rh] = $("res").value.split("x").map(Number), fps = Number($("fps").value);
+  store.set("bt_name", $("name").value); store.set("bt_res", $("res").value); store.set("bt_fps", String(fps));
+  store.set("bt_q", $("q").value); store.set("bt_cam", $("cam").value); store.set("bt_mode", $("mode").value);
+  mode = $("mode").value === "edge" && edgeSupported ? "edge" : "video";
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    $("err").textContent = "Camera access is not available. Open this page over https:// (accept the certificate warning).";
+    return;
+  }
+  const video = { width: { ideal: rw }, height: { ideal: rh }, frameRate: { ideal: fps } };
+  if ($("cam").value) video.deviceId = { exact: $("cam").value }; else video.facingMode = { ideal: "environment" };
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: false, video });
+  } catch (e) { $("err").textContent = "Could not open the camera: " + e.message; return; }
+  const v = $("video"); v.srcObject = stream; await v.play();
+  if ($("cam").options.length <= 1) listCameras();
+  canvas = document.createElement("canvas"); ctx = canvas.getContext("2d", { alpha: false });
+  W = v.videoWidth; H = v.videoHeight; canvas.width = W; canvas.height = H; $("res2").textContent = `${W}×${H}`;
+  if (mode === "edge") {
+    try { await startWorker(); } catch (e) {
+      $("err").textContent += "\nFalling back to video mode."; mode = "video";
+    }
+  }
+  $("detbox").style.display = $("upbox").style.display = mode === "edge" ? "" : "none";
+  $("setup").style.display = "none"; $("live").style.display = "block";
+  running = true; keepAwake(); connect();
+  if (mode === "edge") batchTimer = setInterval(flushBatch, 50);
+  if ("requestVideoFrameCallback" in HTMLVideoElement.prototype) v.requestVideoFrameCallback(onVideoFrame);
+  else { // very old browsers: timer-driven, timestamps from the callback
+    const tick = () => { if (!running) return; capCount++; const t = clockNow(); if (mode === "edge") edgeFrame(t); else sendFrame(t); stats(); setTimeout(tick, 1000 / fps); };
+    tsSource = "timer"; tick();
+  }
+};
+
+$("stop").onclick = () => {
+  running = false;
+  if (batchTimer) { clearInterval(batchTimer); batchTimer = null; flushBatch(); }
+  if (worker) { worker.terminate(); worker = null; workerReady = false; workerBusy = 0; }
+  if (ws) ws.close();
+  if (stream) stream.getTracks().forEach((t) => t.stop());
+  if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
+  $("live").style.display = "none"; $("setup").style.display = "block";
+};
+</script>
+</body>
+</html>

@@ -1,0 +1,7 @@
+{
+  "name": "ball-camera",
+  "version": "0.1.0",
+  "description": "Camera capture with on-phone ball detection (local Expo module)",
+  "main": "index.ts",
+  "private": true
+}

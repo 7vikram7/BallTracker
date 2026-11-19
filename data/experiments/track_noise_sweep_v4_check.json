@@ -1,0 +1,42 @@
+[
+  {
+    "fps": 120,
+    "noise_px": 1.0,
+    "dropout": 0.0,
+    "shots": 40,
+    "recall": 1.0,
+    "false": 4,
+    "err_med_cm": 1.1416961342347853,
+    "err_p90_cm": 3.8193907935462823
+  },
+  {
+    "fps": 120,
+    "noise_px": 2.0,
+    "dropout": 0.0,
+    "shots": 40,
+    "recall": 1.0,
+    "false": 7,
+    "err_med_cm": 2.9647798913728516,
+    "err_p90_cm": 12.13537461915492
+  },
+  {
+    "fps": 240,
+    "noise_px": 1.0,
+    "dropout": 0.0,
+    "shots": 40,
+    "recall": 1.0,
+    "false": 2,
+    "err_med_cm": 0.8781977877412339,
+    "err_p90_cm": 3.314038589639421
+  },
+  {
+    "fps": 240,
+    "noise_px": 2.0,
+    "dropout": 0.0,
+    "shots": 40,
+    "recall": 1.0,
+    "false": 1,
+    "err_med_cm": 3.0754533049625206,
+    "err_p90_cm": 8.06210734700083
+  }
+]

@@ -1,0 +1,51 @@
+{
+  "expo": {
+    "name": "BallTracker Cam",
+    "slug": "balltracker-cam",
+    "version": "0.1.0",
+    "orientation": "landscape",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#000000",
+    "ios": {
+      "bundleIdentifier": "dev.balltracker.cam",
+      "supportsTablet": false,
+      "requireFullScreen": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "The camera films the court so the app can track the ball.",
+        "NSLocalNetworkUsageDescription": "The app sends ball positions to the BallTracker server on your Mac over Wi-Fi.",
+        "NSAppTransportSecurity": {
+          "NSAllowsLocalNetworking": true
+        }
+      },
+      "appleTeamId": "KX743G783P"
+    },
+    "android": {
+      "package": "dev.balltracker.cam",
+      "permissions": [
+        "android.permission.CAMERA"
+      ]
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "The camera films the court so the app can track the ball.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          },
+          "ios": {
+            "deploymentTarget": "16.4"
+          }
+        }
+      ],
+      "expo-screen-orientation"
+    ]
+  }
+}

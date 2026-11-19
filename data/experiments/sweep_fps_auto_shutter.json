@@ -1,0 +1,246 @@
+[
+  {
+    "camera": "behind_baseline_high",
+    "fps": 30.0,
+    "seed": 2,
+    "res": "1280x720",
+    "scale": 1.0,
+    "shutter": "auto",
+    "noise": 6.0,
+    "true_bounces": 15,
+    "detected": 14,
+    "recall": 0.9333333333333333,
+    "false_bounces": 0,
+    "position_error_cm": {
+      "n": 14,
+      "median": 1.130769821653144,
+      "p90": 2.5872201935663752,
+      "max": 3.2867734457144993
+    },
+    "line_distance_error_cm": {
+      "n": 14,
+      "median": 0.6325977261278481,
+      "p90": 1.2681389410548998,
+      "max": 1.6010663223517518
+    },
+    "timing_error_ms": {
+      "n": 14,
+      "median": 0.6035161880149076,
+      "p90": 1.398588006543378,
+      "max": 1.5872658623123925
+    },
+    "calls_all": {
+      "true_out": 6,
+      "true_in": 8,
+      "out_called_out": 6,
+      "out_silent_uncertain": 0,
+      "out_called_in": 0,
+      "in_called_out": 0,
+      "in_uncertain": 1,
+      "in_called_in": 7
+    },
+    "calls_within_10cm_of_line": {
+      "true_out": 4,
+      "true_in": 2,
+      "out_called_out": 4,
+      "out_silent_uncertain": 0,
+      "out_called_in": 0,
+      "in_called_out": 0,
+      "in_uncertain": 1,
+      "in_called_in": 1
+    },
+    "WRONG_OUT_CALLS": 0,
+    "MISSED_OUT_CALLS": 0,
+    "calibration": {
+      "points": 17,
+      "rms_px": 1.4221627904270773,
+      "focal_err_pct": 0.08376946524516073,
+      "position_err_cm": 1.831849554729544
+    },
+    "processing_fps": 8.255300337351699,
+    "wall_s": 85.20241122800508
+  },
+  {
+    "camera": "behind_baseline_high",
+    "fps": 60.0,
+    "seed": 2,
+    "res": "1280x720",
+    "scale": 1.0,
+    "shutter": "auto",
+    "noise": 6.0,
+    "true_bounces": 15,
+    "detected": 15,
+    "recall": 1.0,
+    "false_bounces": 0,
+    "position_error_cm": {
+      "n": 15,
+      "median": 1.3259758142059648,
+      "p90": 3.25332186623954,
+      "max": 3.5016268242867645
+    },
+    "line_distance_error_cm": {
+      "n": 15,
+      "median": 0.6064452402515297,
+      "p90": 1.8419414284510789,
+      "max": 3.221971258130462
+    },
+    "timing_error_ms": {
+      "n": 15,
+      "median": 0.3800434400060837,
+      "p90": 2.04395854855619,
+      "max": 2.8141575325815182
+    },
+    "calls_all": {
+      "true_out": 6,
+      "true_in": 9,
+      "out_called_out": 6,
+      "out_silent_uncertain": 0,
+      "out_called_in": 0,
+      "in_called_out": 0,
+      "in_uncertain": 1,
+      "in_called_in": 8
+    },
+    "calls_within_10cm_of_line": {
+      "true_out": 4,
+      "true_in": 3,
+      "out_called_out": 4,
+      "out_silent_uncertain": 0,
+      "out_called_in": 0,
+      "in_called_out": 0,
+      "in_uncertain": 1,
+      "in_called_in": 2
+    },
+    "WRONG_OUT_CALLS": 0,
+    "MISSED_OUT_CALLS": 0,
+    "calibration": {
+      "points": 17,
+      "rms_px": 1.4221627904270773,
+      "focal_err_pct": 0.08376946524516073,
+      "position_err_cm": 1.831849554729544
+    },
+    "processing_fps": 25.579729952597113,
+    "wall_s": 54.974839258007705
+  },
+  {
+    "camera": "behind_baseline_high",
+    "fps": 120.0,
+    "seed": 2,
+    "res": "1280x720",
+    "scale": 1.0,
+    "shutter": "auto",
+    "noise": 6.0,
+    "true_bounces": 15,
+    "detected": 15,
+    "recall": 1.0,
+    "false_bounces": 0,
+    "position_error_cm": {
+      "n": 15,
+      "median": 1.447435141364947,
+      "p90": 2.6265873046638135,
+      "max": 3.0508288214032038
+    },
+    "line_distance_error_cm": {
+      "n": 15,
+      "median": 0.5268901041273644,
+      "p90": 1.0068381038727914,
+      "max": 1.3101331276589967
+    },
+    "timing_error_ms": {
+      "n": 15,
+      "median": 0.3383058633747993,
+      "p90": 0.7454127941912247,
+      "max": 2.2189194373449794
+    },
+    "calls_all": {
+      "true_out": 6,
+      "true_in": 9,
+      "out_called_out": 6,
+      "out_silent_uncertain": 0,
+      "out_called_in": 0,
+      "in_called_out": 0,
+      "in_uncertain": 1,
+      "in_called_in": 8
+    },
+    "calls_within_10cm_of_line": {
+      "true_out": 4,
+      "true_in": 3,
+      "out_called_out": 4,
+      "out_silent_uncertain": 0,
+      "out_called_in": 0,
+      "in_called_out": 0,
+      "in_uncertain": 1,
+      "in_called_in": 2
+    },
+    "WRONG_OUT_CALLS": 0,
+    "MISSED_OUT_CALLS": 0,
+    "calibration": {
+      "points": 17,
+      "rms_px": 1.4221627904270773,
+      "focal_err_pct": 0.08376946524516073,
+      "position_err_cm": 1.831849554729544
+    },
+    "processing_fps": 41.010451786341314,
+    "wall_s": 68.60109665399068
+  },
+  {
+    "camera": "behind_baseline_high",
+    "fps": 240.0,
+    "seed": 2,
+    "res": "1280x720",
+    "scale": 1.0,
+    "shutter": "auto",
+    "noise": 6.0,
+    "true_bounces": 15,
+    "detected": 15,
+    "recall": 1.0,
+    "false_bounces": 0,
+    "position_error_cm": {
+      "n": 15,
+      "median": 1.4049807663178802,
+      "p90": 2.831002988561109,
+      "max": 2.9280783927600944
+    },
+    "line_distance_error_cm": {
+      "n": 15,
+      "median": 0.5199539524293861,
+      "p90": 0.7489915410945791,
+      "max": 1.5367261588057346
+    },
+    "timing_error_ms": {
+      "n": 15,
+      "median": 0.19575820338602057,
+      "p90": 0.5246731526907134,
+      "max": 0.6702702262035842
+    },
+    "calls_all": {
+      "true_out": 6,
+      "true_in": 9,
+      "out_called_out": 5,
+      "out_silent_uncertain": 1,
+      "out_called_in": 0,
+      "in_called_out": 0,
+      "in_uncertain": 1,
+      "in_called_in": 8
+    },
+    "calls_within_10cm_of_line": {
+      "true_out": 4,
+      "true_in": 3,
+      "out_called_out": 3,
+      "out_silent_uncertain": 1,
+      "out_called_in": 0,
+      "in_called_out": 0,
+      "in_uncertain": 1,
+      "in_called_in": 2
+    },
+    "WRONG_OUT_CALLS": 0,
+    "MISSED_OUT_CALLS": 1,
+    "calibration": {
+      "points": 17,
+      "rms_px": 1.4221627904270773,
+      "focal_err_pct": 0.08376946524516073,
+      "position_err_cm": 1.831849554729544
+    },
+    "processing_fps": 44.839013540276525,
+    "wall_s": 125.50406005600234
+  }
+]

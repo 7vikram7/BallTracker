@@ -1,0 +1,9 @@
+# Any taped rectangle: give measured dimensions (outside edge of tape to outside edge).
+# Measure your floor court with a tape measure and edit these numbers.
+base: pickleball
+units: cm
+name: living_room_court
+width: 250
+length: 540
+kitchen_depth: 85
+line_width: 4.8          # e.g. 48 mm painter's tape

@@ -1,0 +1,37 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'expo.modules.ballcamera'
+version = '0.1.0'
+
+android {
+  namespace "expo.modules.ballcamera"
+  defaultConfig {
+    versionCode 1
+    versionName "0.1.0"
+    externalNativeBuild {
+      cmake {
+        // Shared C++ detector; no fused multiply-add so results match the Python reference.
+        cppFlags "-std=c++17 -O2 -ffp-contract=off"
+      }
+    }
+  }
+  externalNativeBuild {
+    cmake {
+      path "src/main/cpp/CMakeLists.txt"
+    }
+  }
+  lintOptions {
+    abortOnError false
+  }
+}
+
+dependencies {
+  def camerax = "1.4.2"
+  implementation "androidx.camera:camera-core:${camerax}"
+  implementation "androidx.camera:camera-camera2:${camerax}"
+  implementation "androidx.camera:camera-lifecycle:${camerax}"
+  implementation "androidx.camera:camera-view:${camerax}"
+}

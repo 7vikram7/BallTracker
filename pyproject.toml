@@ -1,0 +1,35 @@
+[project]
+name = "balltracker"
+version = "0.1.0"
+description = "Multi-sport ball tracking and line calling; pickleball first"
+requires-python = ">=3.12"
+dependencies = [
+  "numpy>=2.0",
+  "scipy>=1.13",
+  "opencv-python>=4.10",   # Apache-2.0
+  "av>=12",                # PyAV, BSD; bundles LGPL FFmpeg
+  "pydantic>=2.7",
+  "pyyaml>=6",
+]
+
+[project.optional-dependencies]
+live = ["aiohttp>=3.9", "cryptography>=42", "segno>=1.6"]   # Apache-2.0, Apache-2.0/BSD, BSD
+server = ["aiohttp>=3.9", "cryptography>=42", "segno>=1.6"]
+dev = ["pytest>=8"]
+
+[project.scripts]
+bt = "balltracker.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["balltracker*"]
+
+[tool.setuptools.package-data]
+"balltracker.live" = ["static/*.html", "static/*.js", "static/*.wasm"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["slow: renders synthetic video (seconds to a minute)"]

@@ -1,0 +1,238 @@
+[
+  {
+    "camera": "behind_baseline_high",
+    "fps": 30.0,
+    "seed": 1,
+    "res": "1280x720",
+    "scale": 1.0,
+    "true_bounces": 20,
+    "detected": 20,
+    "recall": 1.0,
+    "false_bounces": 0,
+    "position_error_cm": {
+      "n": 20,
+      "median": 0.721722695085413,
+      "p90": 1.4507187232792267,
+      "max": 2.052251143215056
+    },
+    "line_distance_error_cm": {
+      "n": 19,
+      "median": 0.21453806881783777,
+      "p90": 0.4387763358469257,
+      "max": 1.932771506553621
+    },
+    "timing_error_ms": {
+      "n": 20,
+      "median": 0.3138571133991519,
+      "p90": 0.9593454332970986,
+      "max": 3.3136126319277537
+    },
+    "calls_all": {
+      "true_out": 4,
+      "true_in": 15,
+      "out_called_out": 4,
+      "out_silent_uncertain": 0,
+      "out_called_in": 0,
+      "in_called_out": 0,
+      "in_uncertain": 3,
+      "in_called_in": 12
+    },
+    "calls_within_10cm_of_line": {
+      "true_out": 3,
+      "true_in": 7,
+      "out_called_out": 3,
+      "out_silent_uncertain": 0,
+      "out_called_in": 0,
+      "in_called_out": 0,
+      "in_uncertain": 3,
+      "in_called_in": 4
+    },
+    "WRONG_OUT_CALLS": 0,
+    "MISSED_OUT_CALLS": 0,
+    "calibration": {
+      "points": 17,
+      "rms_px": 1.4853256729065039,
+      "focal_err_pct": -0.02405853763476531,
+      "position_err_cm": 0.8298370221431376
+    },
+    "processing_fps": 62.99994710931617,
+    "wall_s": 15.244809104013257
+  },
+  {
+    "camera": "behind_baseline_high",
+    "fps": 60.0,
+    "seed": 1,
+    "res": "1280x720",
+    "scale": 1.0,
+    "true_bounces": 20,
+    "detected": 20,
+    "recall": 1.0,
+    "false_bounces": 0,
+    "position_error_cm": {
+      "n": 20,
+      "median": 0.8438387764612598,
+      "p90": 3.2525699094690723,
+      "max": 5.465060814151661
+    },
+    "line_distance_error_cm": {
+      "n": 19,
+      "median": 0.1737880676810024,
+      "p90": 1.0754753286304994,
+      "max": 3.194488420935585
+    },
+    "timing_error_ms": {
+      "n": 20,
+      "median": 0.2973065651188378,
+      "p90": 1.7491294098072714,
+      "max": 2.652236970554611
+    },
+    "calls_all": {
+      "true_out": 4,
+      "true_in": 15,
+      "out_called_out": 4,
+      "out_silent_uncertain": 0,
+      "out_called_in": 0,
+      "in_called_out": 0,
+      "in_uncertain": 3,
+      "in_called_in": 12
+    },
+    "calls_within_10cm_of_line": {
+      "true_out": 3,
+      "true_in": 7,
+      "out_called_out": 3,
+      "out_silent_uncertain": 0,
+      "out_called_in": 0,
+      "in_called_out": 0,
+      "in_uncertain": 3,
+      "in_called_in": 4
+    },
+    "WRONG_OUT_CALLS": 0,
+    "MISSED_OUT_CALLS": 0,
+    "calibration": {
+      "points": 17,
+      "rms_px": 1.4853256729065039,
+      "focal_err_pct": -0.02405853763476531,
+      "position_err_cm": 0.8298370221431376
+    },
+    "processing_fps": 25.97986789139606,
+    "wall_s": 73.92633940599626
+  },
+  {
+    "camera": "behind_baseline_high",
+    "fps": 120.0,
+    "seed": 1,
+    "res": "1280x720",
+    "scale": 1.0,
+    "true_bounces": 20,
+    "detected": 18,
+    "recall": 0.9,
+    "false_bounces": 0,
+    "position_error_cm": {
+      "n": 18,
+      "median": 0.7349170537222887,
+      "p90": 2.646764246008425,
+      "max": 3.9750713222729153
+    },
+    "line_distance_error_cm": {
+      "n": 17,
+      "median": 0.22632922002142664,
+      "p90": 1.2527209302855715,
+      "max": 2.844172205983938
+    },
+    "timing_error_ms": {
+      "n": 18,
+      "median": 0.3033006586790066,
+      "p90": 1.6403202004106503,
+      "max": 2.1764795649374946
+    },
+    "calls_all": {
+      "true_out": 4,
+      "true_in": 13,
+      "out_called_out": 4,
+      "out_silent_uncertain": 0,
+      "out_called_in": 0,
+      "in_called_out": 0,
+      "in_uncertain": 4,
+      "in_called_in": 9
+    },
+    "calls_within_10cm_of_line": {
+      "true_out": 3,
+      "true_in": 6,
+      "out_called_out": 3,
+      "out_silent_uncertain": 0,
+      "out_called_in": 0,
+      "in_called_out": 0,
+      "in_uncertain": 4,
+      "in_called_in": 2
+    },
+    "WRONG_OUT_CALLS": 0,
+    "MISSED_OUT_CALLS": 0,
+    "calibration": {
+      "points": 17,
+      "rms_px": 1.4853256729065039,
+      "focal_err_pct": -0.02405853763476531,
+      "position_err_cm": 0.8298370221431376
+    },
+    "processing_fps": 22.47052351733918,
+    "wall_s": 170.9564377120114
+  },
+  {
+    "camera": "behind_baseline_high",
+    "fps": 240.0,
+    "seed": 1,
+    "res": "1280x720",
+    "scale": 1.0,
+    "true_bounces": 20,
+    "detected": 20,
+    "recall": 1.0,
+    "false_bounces": 3,
+    "position_error_cm": {
+      "n": 20,
+      "median": 0.8824568418442771,
+      "p90": 2.762393521964169,
+      "max": 4.174402847348521
+    },
+    "line_distance_error_cm": {
+      "n": 19,
+      "median": 0.20665620065636325,
+      "p90": 0.8913669971373526,
+      "max": 2.0849503151458464
+    },
+    "timing_error_ms": {
+      "n": 20,
+      "median": 0.5294130116002549,
+      "p90": 0.888466446252778,
+      "max": 1.3090355328753134
+    },
+    "calls_all": {
+      "true_out": 4,
+      "true_in": 15,
+      "out_called_out": 4,
+      "out_silent_uncertain": 0,
+      "out_called_in": 0,
+      "in_called_out": 0,
+      "in_uncertain": 3,
+      "in_called_in": 12
+    },
+    "calls_within_10cm_of_line": {
+      "true_out": 3,
+      "true_in": 7,
+      "out_called_out": 3,
+      "out_silent_uncertain": 0,
+      "out_called_in": 0,
+      "in_called_out": 0,
+      "in_uncertain": 3,
+      "in_called_in": 4
+    },
+    "WRONG_OUT_CALLS": 0,
+    "MISSED_OUT_CALLS": 0,
+    "calibration": {
+      "points": 17,
+      "rms_px": 1.4853256729065039,
+      "focal_err_pct": -0.02405853763476531,
+      "position_err_cm": 0.8298370221431376
+    },
+    "processing_fps": 15.856968513968729,
+    "wall_s": 484.4721027830092
+  }
+]

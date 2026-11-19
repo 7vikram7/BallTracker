@@ -1,0 +1,4 @@
+# Half-size practice court taped on an indoor floor (10 x 22 ft).
+# Ball and tape width are real-size (not scaled).
+base: pickleball
+scale: 0.5

@@ -1,0 +1,19 @@
+.venv/
+__pycache__/
+*.egg-info/
+.pytest_cache/
+data/recordings/
+data/synth/
+data/experiments/*.mp4
+data/live*/
+*.mov
+*.MOV
+*.mp4
+build/
+.DS_Store
+# big local media and per-session recordings (samples for tests live in data/samples/)
+TestData/
+DebugScreenshots/
+data/live_demo/
+*.HEIC
+*.apk

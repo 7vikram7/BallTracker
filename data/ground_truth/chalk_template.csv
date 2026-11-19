@@ -1,0 +1,3 @@
+bounce,t_s,x_m,y_m,line,signed_distance_cm,notes
+1,,,,baseline_B,3.5,example: mark 3.5 cm outside the baseline (OUT)
+2,,,,sideline_right,-1.0,example: mark overlaps the line by 1 cm (IN)

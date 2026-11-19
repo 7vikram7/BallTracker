@@ -1,0 +1,386 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BallTracker Live</title>
+<style>
+  :root { --bg:#f6f7f9; --fg:#14181f; --mut:#5d6b7e; --card:#fff; --line:#dde2e8; --acc:#2563eb; --ok:#16a34a; --bad:#dc2626; --warn:#d97706;
+          --court:#2f6f9f; --courtline:#fff; --kitchen:#3b82b6; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#0e1116; --fg:#e8edf3; --mut:#93a1b3; --card:#171c24; --line:#2a3240; } }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.45 -apple-system, system-ui, sans-serif; }
+  header { display:flex; align-items:center; gap:12px; flex-wrap:wrap; padding:10px 16px; border-bottom:1px solid var(--line); background:var(--card); position:sticky; top:0; z-index:5; }
+  header h1 { font-size:17px; margin:0 8px 0 0; }
+  .mut { color:var(--mut); }
+  button { font:inherit; padding:6px 11px; border-radius:8px; border:1px solid var(--line); background:var(--card); color:var(--fg); cursor:pointer; }
+  button.on { background:var(--acc); color:white; border-color:var(--acc); }
+  button.pri { background:var(--acc); color:#fff; border-color:var(--acc); }
+  button.danger { color:var(--bad); }
+  .grp { display:flex; gap:4px; align-items:center; flex-wrap:wrap; }
+  main { display:grid; grid-template-columns:minmax(320px, 1.15fr) minmax(320px, 1fr); gap:16px; padding:16px; }
+  @media (max-width: 900px) { main { grid-template-columns:1fr; } }
+  section { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px; }
+  section h2 { font-size:14px; margin:0 0 10px; text-transform:uppercase; letter-spacing:.04em; color:var(--mut); }
+  .cams { display:grid; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); gap:12px; }
+  .cam { border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+  .cam .thumb { position:relative; background:#000; aspect-ratio:16/9; }
+  .cam .thumb img, .cam .thumb canvas { position:absolute; inset:0; width:100%; height:100%; object-fit:contain; }
+  .cam .body { padding:8px 10px; }
+  .cam .title { display:flex; justify-content:space-between; align-items:center; font-weight:650; }
+  .kv { display:grid; grid-template-columns:auto 1fr; gap:1px 10px; font-size:12.5px; margin:6px 0; }
+  .kv span:nth-child(odd) { color:var(--mut); }
+  .dot { display:inline-block; width:9px; height:9px; border-radius:50%; background:var(--bad); margin-right:6px; }
+  .dot.ok { background:var(--ok); } .dot.warn { background:var(--warn); }
+  .add { display:flex; gap:14px; align-items:flex-start; flex-wrap:wrap; margin-top:12px; font-size:13px; }
+  .add img { width:150px; height:150px; background:#fff; border-radius:8px; }
+  code { font-family:ui-monospace, Menlo, monospace; font-size:12.5px; word-break:break-all; }
+  #courtwrap svg { width:100%; height:auto; display:block; max-height:62vh; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th, td { text-align:left; padding:5px 6px; border-bottom:1px solid var(--line); white-space:nowrap; }
+  th { color:var(--mut); font-weight:600; }
+  td.res-OUT { color:var(--bad); font-weight:700; } td.res-IN { color:var(--ok); } td.res-UNCERTAIN { color:var(--warn); }
+  #banner { position:fixed; left:50%; top:22%; transform:translate(-50%, -50%) scale(.9); font-size:120px; font-weight:900; color:#fff; background:var(--bad);
+            padding:10px 48px; border-radius:24px; opacity:0; transition:all .2s; pointer-events:none; z-index:20; }
+  #banner.show { opacity:1; transform:translate(-50%, -50%) scale(1); }
+  /* calibration */
+  #cal { position:fixed; inset:0; background:#000d; display:none; z-index:30; }
+  #cal .wrap { position:absolute; inset:14px; display:grid; grid-template-columns:1fr 300px; gap:12px; }
+  #cal .img { position:relative; background:#000; border-radius:10px; overflow:hidden; }
+  #cal canvas#calc { position:absolute; inset:0; width:100%; height:100%; cursor:crosshair; }
+  #cal canvas#loupe { position:absolute; right:10px; top:10px; width:180px; height:180px; border:2px solid #fff; border-radius:50%; background:#000; pointer-events:none; }
+  #cal .side { background:var(--card); border-radius:10px; padding:12px; overflow:auto; }
+  #cal .kp { padding:4px 6px; border-radius:6px; cursor:pointer; font-size:13px; display:flex; justify-content:space-between; }
+  #cal .kp.cur { background:var(--acc); color:#fff; }
+  #cal .kp.done::after { content:"✓"; } #cal .kp.skip::after { content:"–"; color:var(--mut); }
+  #calres { font-size:13px; margin-top:8px; white-space:pre-wrap; }
+</style>
+</head>
+<body>
+<header>
+  <h1>BallTracker Live</h1>
+  <span class="mut" id="clock">–</span>
+  <span class="grp"><button id="sound">🔇 Enable sound</button><button id="test">Test call</button></span>
+  <span class="grp" title="Serve calls need to know who serves from where. Applies to the next bounce only, then back to rally.">
+    <span class="mut">Next bounce:</span>
+    <button data-ctx="rally" class="on">Rally</button>
+    <button data-ctx="serve:A:right">Serve A·right</button><button data-ctx="serve:A:left">Serve A·left</button>
+    <button data-ctx="serve:B:right">Serve B·right</button><button data-ctx="serve:B:left">Serve B·left</button>
+  </span>
+  <span class="mut" id="conn">connecting…</span>
+</header>
+<main>
+  <div>
+    <section>
+      <h2>Cameras</h2>
+      <div class="cams" id="cams"><p class="mut">No phones yet. Open the link below on each phone.</p></div>
+      <div class="add">
+        <img id="qr" alt="QR code for the phone page">
+        <div>
+          <b>Add a phone</b> (same Wi-Fi as this Mac): <b>scan this code with the phone's camera</b>, or open:<br><span id="urls"></span>
+          <p class="mut" style="margin:6px 0 0">Android: tap the link so it opens in <b>Chrome</b> (not a preview inside the camera or Google Lens),
+            then <i>Advanced › Proceed</i> at the certificate warning.</p>
+          <p class="mut" style="margin:8px 0 0">The browser will warn about the certificate (the Mac signs its own). To remove the warning, open
+            <code id="caurl"></code> on the phone and install it: iPhone: Settings › General › VPN &amp; Device Management, then
+            Settings › General › About › Certificate Trust Settings.</p>
+        </div>
+      </div>
+      <div class="add" id="appadd" style="display:none">
+        <img id="qrapp" alt="QR code for the BallTracker Cam app">
+        <div>
+          <b>Only for the BallTracker Cam app</b> (not the phone's camera: it opens nothing there)<br>
+          <span class="mut">In the app, tap <i>Scan QR</i> and scan this code, or type:</span><br><span id="appurls"></span>
+          <p class="mut" id="apkline" style="margin:6px 0 0; display:none">Android: install the app from
+            <code id="apkurl"></code> (open it in Chrome on the phone; allow installing from this source).</p>
+        </div>
+      </div>
+    </section>
+  </div>
+  <div>
+    <section>
+      <h2>Court</h2>
+      <div id="courtwrap"></div>
+      <p class="mut" style="margin:6px 0 0">Side A at the bottom. Circles: fused bounces (red OUT, green IN, amber unsure; size = 2σ). Small dots: single-camera reports.</p>
+    </section>
+    <section style="margin-top:16px">
+      <h2>Calls</h2>
+      <table><thead><tr><th>t (s)</th><th>call</th><th>p(out)</th><th>line</th><th>dist</th><th>cams</th><th>latency</th></tr></thead><tbody id="log"></tbody></table>
+    </section>
+  </div>
+</main>
+<div id="banner">OUT</div>
+
+<div id="cal">
+  <div class="wrap">
+    <div class="img"><canvas id="calc"></canvas><canvas id="loupe" width="180" height="180"></canvas></div>
+    <div class="side">
+      <b id="caltitle">Calibrate</b>
+      <p class="mut" style="margin:6px 0">Click each court point on the image as accurately as you can (use the magnifier). Skip points you can't see. At least 6 points, spread over the image; net-post tops help most.</p>
+      <div id="minicourt"></div>
+      <div id="kplist"></div>
+      <div class="grp" style="margin-top:10px">
+        <button id="calskip">Skip</button><button id="calundo">Undo</button><button id="calsnap">New snapshot</button>
+      </div>
+      <div class="grp" style="margin-top:8px">
+        <button class="pri" id="caldone">Calibrate</button><button id="calcancel">Close</button><button class="danger" id="calclear">Remove calibration</button>
+      </div>
+      <div id="calres"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+let state = null, court = null, sound = false, ws = null;
+const thumbs = {}, balls = {}, decisions = [], reports = [];
+
+// ---------------------------------------------------------------- sound
+$("sound").onclick = () => {
+  sound = !sound; $("sound").textContent = sound ? "🔊 Sound on" : "🔇 Enable sound";
+  $("sound").classList.toggle("on", sound);
+  if (sound) say("Ready");
+};
+function say(text) {
+  if (!sound || !("speechSynthesis" in window)) return;
+  const u = new SpeechSynthesisUtterance(text); u.rate = 1.05; u.pitch = 1.0; speechSynthesis.cancel(); speechSynthesis.speak(u);
+}
+function banner(text) { const b = $("banner"); b.textContent = text; b.classList.add("show"); setTimeout(() => b.classList.remove("show"), 1400); }
+$("test").onclick = () => { banner("OUT"); say("Out"); };
+
+// ---------------------------------------------------------------- context
+document.querySelectorAll("[data-ctx]").forEach((b) => b.onclick = async () => {
+  const c = b.dataset.ctx; let body = { mode: "rally" };
+  if (c.startsWith("serve")) { const [, s, h] = c.split(":"); body = { mode: "serve", server_side: s, service_side: h }; }
+  await fetch("/api/context", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+});
+function showContext(ctx) { document.querySelectorAll("[data-ctx]").forEach((b) => b.classList.toggle("on", b.dataset.ctx === ctx)); }
+
+// ---------------------------------------------------------------- court svg
+const SVGNS = "http://www.w3.org/2000/svg";
+function courtSvg(c, opts = {}) {
+  const m = opts.margin ?? 1.2, s = opts.scale ?? 40;
+  const W = (2 * c.half_w + 2 * m) * s, H = (2 * c.half_l + 2 * m) * s;
+  const X = (x) => (x + c.half_w + m) * s, Y = (y) => (c.half_l + m - y) * s;
+  const svg = document.createElementNS(SVGNS, "svg"); svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  const el = (tag, a) => { const e = document.createElementNS(SVGNS, tag); for (const k in a) e.setAttribute(k, a[k]); svg.appendChild(e); return e; };
+  el("rect", { x: 0, y: 0, width: W, height: H, fill: "#24557a" });
+  el("rect", { x: X(-c.half_w), y: Y(c.half_l), width: 2 * c.half_w * s, height: 2 * c.half_l * s, fill: "var(--court)" });
+  el("rect", { x: X(-c.half_w), y: Y(c.kitchen), width: 2 * c.half_w * s, height: 2 * c.kitchen * s, fill: "var(--kitchen)" });
+  for (const L of c.lines) el("rect", { x: X(L.x0), y: Y(L.y1), width: Math.max((L.x1 - L.x0) * s, 1), height: Math.max((L.y1 - L.y0) * s, 1), fill: "var(--courtline)" });
+  el("line", { x1: X(-c.half_w - 0.3), y1: Y(0), x2: X(c.half_w + 0.3), y2: Y(0), stroke: "#111", "stroke-width": 3, "stroke-dasharray": "6 4" });
+  const lab = (x, y, t) => { const e = el("text", { x: X(x), y: Y(y), fill: "#fff", "font-size": s * 0.55, "text-anchor": "middle", "font-weight": 700 }); e.textContent = t; };
+  lab(0, -c.half_l - 0.75, "A"); lab(0, c.half_l + 0.45, "B");
+  return { svg, X, Y, s, el };
+}
+function renderCourt() {
+  if (!court) return;
+  const C = courtSvg(court, { scale: 40 });
+  for (const r of reports.slice(-40)) C.el("circle", { cx: C.X(r.x), cy: C.Y(r.y), r: 3, fill: "#fff", opacity: 0.55 });
+  decisions.slice(-30).forEach((d, i, arr) => {
+    const sig = Math.sqrt(Math.max((d.cov[0][0] + d.cov[1][1]) / 2, 1e-6));
+    const col = d.suppressed ? "#888" : d.result === "OUT" ? "#ef4444" : d.result === "IN" ? "#22c55e" : "#f59e0b";
+    const last = i === arr.length - 1;
+    C.el("circle", { cx: C.X(d.x), cy: C.Y(d.y), r: Math.max(2 * sig * C.s, 4), fill: col, "fill-opacity": last ? 0.85 : 0.45, stroke: last ? "#fff" : "none", "stroke-width": 2 });
+  });
+  $("courtwrap").replaceChildren(C.svg);
+}
+
+// ---------------------------------------------------------------- cameras
+const fmt = (v, d = 0, u = "") => (v == null || Number.isNaN(v)) ? "–" : Number(v).toFixed(d) + u;
+function camCard(c) {
+  let card = document.getElementById("cam-" + c.name);
+  if (!card) {
+    card = document.createElement("div"); card.className = "cam"; card.id = "cam-" + c.name;
+    card.innerHTML = `<div class="thumb"><img alt=""><canvas></canvas></div><div class="body">
+      <div class="title"><span><span class="dot"></span><span class="nm"></span></span>
+      <span class="grp"><button class="calb">Calibrate</button><button class="ovb" title="Show court lines projected with the current calibration">Check</button></span></div>
+      <div class="kv"></div></div>`;
+    card.querySelector(".calb").onclick = () => openCal(c.name);
+    card.querySelector(".ovb").onclick = () => { thumbs[c.name] = thumbs[c.name] === "overlay" ? "frame" : "overlay"; };
+    $("cams").appendChild(card);
+  }
+  card.querySelector(".nm").textContent = c.name;
+  const ok = c.connected && c.fps_in > 1;
+  card.querySelector(".dot").className = "dot " + (ok ? (c.calibrated ? "ok" : "warn") : "");
+  const clk = c.clock || {};
+  const ph = c.phone || {};
+  const app = c.mode === "edge";
+  const videoRow = app
+    ? `<span>video</span><span>${c.width}×${c.height} · camera ${fmt(ph.fps_capture)} · on-phone detection ${fmt(ph.fps_processed)} fps (${fmt(ph.detect_ms, 1, " ms")}) · server ${fmt(c.proc_fps)} fps</span>
+       <span>phone</span><span>${ph.thermal || "?"}${ph.battery != null && ph.battery >= 0 ? " · battery " + fmt(100 * ph.battery, 0, "%") : ""} · uplink ${fmt(ph.kbps, 0, " kbit/s")} · ${(c.app && c.app.platform) || ""} app ${(c.app && c.app.app_version) || ""}</span>`
+    : `<span>video</span><span>${c.width}×${c.height} · capture ${fmt(ph.cap_fps)} · in ${fmt(c.fps_in)} · processed ${fmt(c.proc_fps)} fps</span>`;
+  card.querySelector(".kv").innerHTML = `
+    <span>status</span><span>${c.connected ? "connected" : "offline"}${app ? " · app" : " · browser"}${c.worker_alive ? "" : " · worker stopped"}</span>
+    ${videoRow}
+    <span>drops</span><span>phone ${fmt(app ? ph.phone_drops : ph.dropped)}${app ? " · Wi-Fi " + fmt(ph.link_dropped) : ""} · server ${c.drops} · gaps ${c.seq_gaps}</span>
+    <span>latency</span><span>${fmt(c.latency_ms, 0, " ms")} processing</span>
+    <span>clutter</span><span>${c.cands_per_frame == null ? "–" : (c.cands_per_frame > 2.5
+        ? `<b style='color:var(--warn)'>${fmt(c.cands_per_frame, 1)} candidates/frame</b> (yellow-green objects in view?)`
+        : `${fmt(c.cands_per_frame, 1)} candidates/frame`)} · ${c.max_tracks ?? "–"} tracks</span>
+    <span>clock</span><span>rtt ${fmt(clk.rtt_ms, 0, " ms")} · ±${fmt(clk.uncertainty_ms, 1, " ms")} · drift ${fmt(clk.drift_ppm, 0, " ppm")} · ${c.ts_source || "?"}</span>
+    <span>calibration</span><span>${c.calibrated ? "RMS " + fmt(c.calib_rms_px, 2, " px") : "<b style='color:var(--warn)'>needed for calls</b>"}</span>
+    <span>bounces</span><span>${c.bounces ?? 0}</span>`;
+  return card;
+}
+function refreshThumbs() {
+  if (!state) return;
+  for (const c of state.cameras) {
+    const card = document.getElementById("cam-" + c.name); if (!card || !c.frames_in) continue;
+    const kind = thumbs[c.name] === "overlay" ? "overlay" : "frame";
+    card.querySelector("img").src = `/api/cameras/${encodeURIComponent(c.name)}/${kind}.jpg?t=${Date.now()}`;
+  }
+}
+setInterval(refreshThumbs, 1000);
+function drawBall(m) {
+  const card = document.getElementById("cam-" + m.camera); if (!card) return;
+  const cv = card.querySelector("canvas"), c = (state?.cameras || []).find((x) => x.name === m.camera); if (!c || !c.width) return;
+  const r = cv.getBoundingClientRect(); cv.width = r.width; cv.height = r.height;
+  const k = Math.min(r.width / c.width, r.height / c.height), ox = (r.width - c.width * k) / 2, oy = (r.height - c.height * k) / 2;
+  const g = cv.getContext("2d"); g.clearRect(0, 0, cv.width, cv.height);
+  g.strokeStyle = "#ff0"; g.lineWidth = 2; g.beginPath(); g.arc(ox + m.u * k, oy + m.v * k, Math.max(m.r * k, 4), 0, 7); g.stroke();
+  clearTimeout(balls[m.camera]); balls[m.camera] = setTimeout(() => g.clearRect(0, 0, cv.width, cv.height), 400);
+}
+
+// ---------------------------------------------------------------- log
+function addDecision(d, live) {
+  decisions.push(d); if (decisions.length > 200) decisions.shift();
+  const tr = document.createElement("tr");
+  const res = d.suppressed ? "2nd bounce" : d.unconfirmed_by ? "OUT? (unconfirmed)" : (d.text || d.result || "?");
+  tr.innerHTML = `<td>${fmt(d.t, 2)}</td><td class="res-${d.suppressed ? "" : d.result}">${res}</td><td>${fmt(d.p_out, 2)}</td>
+    <td>${d.line || "–"}</td><td>${d.distance_cm != null ? (d.distance_cm > 0 ? "+" : "") + d.distance_cm.toFixed(1) + " cm" : "–"}</td>
+    <td>${(d.cameras || []).length}${d.inflation > 1 ? " ⚠︎" : ""}</td><td>${fmt(d.latency_s, 2, " s")}</td>`;
+  tr.title = `cameras: ${(d.cameras || []).join(", ")}\nposition: (${fmt(d.x, 3)}, ${fmt(d.y, 3)}) m\nconfidence ${fmt(d.confidence, 2)}` + (d.inflation > 1 ? `\ncameras disagreed (chi² ${fmt(d.chi2, 1)}); uncertainty inflated ×${fmt(d.inflation, 1)}` : "") +
+    (d.unconfirmed_by ? `\nsilent: ${d.unconfirmed_by.join(", ")} could see this spot but saw no bounce` : "");
+  $("log").prepend(tr);
+  while ($("log").children.length > 100) $("log").lastChild.remove();
+  renderCourt();
+  if (live && d.announce) { banner(d.text || "OUT"); say(d.text === "FAULT" ? "Fault" : "Out"); }
+}
+
+// ---------------------------------------------------------------- websocket
+function connect() {
+  ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/dashboard`);
+  let initial = true; setTimeout(() => initial = false, 1500);
+  ws.onopen = () => { $("conn").textContent = "live"; };
+  ws.onclose = () => { $("conn").textContent = "disconnected, retrying…"; setTimeout(connect, 1500); };
+  ws.onmessage = (ev) => {
+    const m = JSON.parse(ev.data);
+    if (m.type === "state") {
+      state = m; $("clock").textContent = `session ${m.t.toFixed(0)} s` + (m.recording ? " · recording" : "");
+      showContext(m.context);
+      if (m.cameras.length) { const ph = $("cams").querySelector("p"); if (ph) ph.remove(); }
+      m.cameras.forEach(camCard);
+      const urls = m.phone_urls || [];
+      $("urls").innerHTML = urls.map((u) => `<code>${u}</code>`).join("<br>") || "<span class='mut'>no network address found</span>";
+      if (urls[0] && !$("qr").dataset.u) { $("qr").src = "/qr.svg?u=" + encodeURIComponent(urls[0]); $("qr").dataset.u = urls[0]; }
+      $("caurl").textContent = m.ca_url || "(server running without HTTPS)";
+      const apps = m.app_urls || [];
+      if (apps[0]) {
+        $("appadd").style.display = "";
+        $("appurls").innerHTML = apps.map((u) => `<code>${u.split("//")[1].split("/")[0]}</code>`).join("<br>");
+        if (m.apk) { $("apkline").style.display = ""; $("apkurl").textContent = `http://${apps[0].split("//")[1].split("/")[0]}/app.apk`; }
+        if (!$("qrapp").dataset.u) {
+          const link = "balltracker://connect?ws=" + encodeURIComponent(apps[0]);
+          $("qrapp").src = "/qr.svg?u=" + encodeURIComponent(link); $("qrapp").dataset.u = link;
+        }
+      }
+    } else if (m.type === "decision") { addDecision(m, !initial); }
+    else if (m.type === "report") { reports.push(m); if (reports.length > 200) reports.shift(); renderCourt(); }
+    else if (m.type === "ball") { drawBall(m); }
+    else if (m.type === "warning") { console.warn(m.text); }
+  };
+}
+fetch("/api/court").then((r) => r.json()).then((c) => { court = c; renderCourt(); connect(); });
+
+// ---------------------------------------------------------------- calibration
+const cal = { name: null, img: null, pts: {}, order: [], cur: 0, scale: 1, ox: 0, oy: 0, skipped: new Set() };
+const KP_HELP = {
+  A_left_corner: "Baseline A × left sideline (outer corner)", A_right_corner: "Baseline A × right sideline (outer corner)",
+  B_left_corner: "Baseline B × left sideline (outer corner)", B_right_corner: "Baseline B × right sideline (outer corner)",
+  A_kitchen_left: "Kitchen line A × left sideline", A_kitchen_right: "Kitchen line A × right sideline",
+  B_kitchen_left: "Kitchen line B × left sideline", B_kitchen_right: "Kitchen line B × right sideline",
+  A_centre_baseline: "Centre line × baseline A", B_centre_baseline: "Centre line × baseline B",
+  A_centre_kitchen: "Centre line × kitchen line A", B_centre_kitchen: "Centre line × kitchen line B",
+  net_left_ground: "Net line × left sideline (ground)", net_right_ground: "Net line × right sideline (ground)",
+  net_left_top: "Top of net at left sideline", net_right_top: "Top of net at right sideline", net_centre_top: "Top of net at centre",
+};
+async function openCal(name) {
+  cal.name = name; cal.pts = {}; cal.skipped = new Set(); cal.cur = 0;
+  cal.order = Object.keys(court.keypoints);
+  $("caltitle").textContent = "Calibrate " + name; $("calres").textContent = "";
+  $("cal").style.display = "block";
+  await snapshot(); renderKp();
+}
+async function snapshot() {
+  const img = new Image(); img.src = `/api/cameras/${encodeURIComponent(cal.name)}/frame.jpg?t=${Date.now()}`;
+  await img.decode().catch(() => {}); cal.img = img; drawCal();
+}
+function drawCal(mx, my) {
+  const cv = $("calc"), r = cv.getBoundingClientRect(); cv.width = r.width; cv.height = r.height;
+  const g = cv.getContext("2d"); g.fillStyle = "#000"; g.fillRect(0, 0, cv.width, cv.height);
+  if (!cal.img || !cal.img.naturalWidth) { g.fillStyle = "#fff"; g.fillText("No frame yet", 20, 30); return; }
+  const iw = cal.img.naturalWidth, ih = cal.img.naturalHeight;
+  cal.scale = Math.min(cv.width / iw, cv.height / ih); cal.ox = (cv.width - iw * cal.scale) / 2; cal.oy = (cv.height - ih * cal.scale) / 2;
+  g.drawImage(cal.img, cal.ox, cal.oy, iw * cal.scale, ih * cal.scale);
+  g.font = "12px system-ui";
+  for (const [k, [u, v]] of Object.entries(cal.pts)) {
+    const x = cal.ox + u * cal.scale, y = cal.oy + v * cal.scale;
+    g.strokeStyle = "#ff0"; g.lineWidth = 2; g.beginPath(); g.moveTo(x - 7, y); g.lineTo(x + 7, y); g.moveTo(x, y - 7); g.lineTo(x, y + 7); g.stroke();
+    g.fillStyle = "#ff0"; g.fillText(k, x + 6, y - 6);
+  }
+  const L = $("loupe"), lg = L.getContext("2d"); lg.fillStyle = "#000"; lg.fillRect(0, 0, 180, 180);
+  if (mx != null) {
+    const u = (mx - cal.ox) / cal.scale, v = (my - cal.oy) / cal.scale, z = 6, half = 90 / z;
+    lg.imageSmoothingEnabled = false; lg.drawImage(cal.img, u - half, v - half, 2 * half, 2 * half, 0, 0, 180, 180);
+    lg.strokeStyle = "#f00"; lg.beginPath(); lg.moveTo(90, 70); lg.lineTo(90, 110); lg.moveTo(70, 90); lg.lineTo(110, 90); lg.stroke();
+  }
+}
+function renderKp() {
+  const list = $("kplist"); list.innerHTML = "";
+  cal.order.forEach((k, i) => {
+    const d = document.createElement("div");
+    d.className = "kp" + (i === cal.cur ? " cur" : "") + (cal.pts[k] ? " done" : cal.skipped.has(k) ? " skip" : "");
+    d.innerHTML = `<span>${KP_HELP[k] || k}</span>`; d.onclick = () => { cal.cur = i; renderKp(); };
+    list.appendChild(d);
+  });
+  const C = courtSvg(court, { scale: 14, margin: 0.8 });
+  const k = cal.order[cal.cur];
+  if (k) { const [x, y, z] = court.keypoints[k]; C.el("circle", { cx: C.X(x), cy: C.Y(y), r: 7, fill: z > 0 ? "#f0f" : "#ff0", stroke: "#000", "stroke-width": 2 }); }
+  $("minicourt").replaceChildren(C.svg);
+}
+function advance() { let i = cal.cur + 1; while (i < cal.order.length && (cal.pts[cal.order[i]] || cal.skipped.has(cal.order[i]))) i++; cal.cur = Math.min(i, cal.order.length - 1); renderKp(); drawCal(); }
+$("calc").onmousemove = (e) => { const r = e.target.getBoundingClientRect(); drawCal(e.clientX - r.left, e.clientY - r.top); };
+$("calc").onclick = (e) => {
+  if (!cal.img) return;
+  const r = e.target.getBoundingClientRect(), u = (e.clientX - r.left - cal.ox) / cal.scale, v = (e.clientY - r.top - cal.oy) / cal.scale;
+  if (u < 0 || v < 0 || u > cal.img.naturalWidth || v > cal.img.naturalHeight) return;
+  const k = cal.order[cal.cur]; cal.pts[k] = [u, v]; cal.skipped.delete(k); advance();
+};
+$("calskip").onclick = () => { const k = cal.order[cal.cur]; delete cal.pts[k]; cal.skipped.add(k); advance(); };
+$("calundo").onclick = () => { const k = cal.order[cal.cur]; if (cal.pts[k]) delete cal.pts[k]; else if (cal.cur > 0) { cal.cur--; delete cal.pts[cal.order[cal.cur]]; } renderKp(); drawCal(); };
+$("calsnap").onclick = snapshot;
+$("calcancel").onclick = () => { $("cal").style.display = "none"; };
+$("calclear").onclick = async () => {
+  if (!confirm("Remove the saved calibration for " + cal.name + "?")) return;
+  await fetch(`/api/cameras/${encodeURIComponent(cal.name)}/calibrate`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ clear: true }) });
+  $("calres").textContent = "Calibration removed.";
+};
+$("caldone").onclick = async () => {
+  const n = Object.keys(cal.pts).length;
+  if (n < 4) { $("calres").textContent = "Click at least 4 points (6+ recommended)."; return; }
+  const r = await fetch(`/api/cameras/${encodeURIComponent(cal.name)}/calibrate`, { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ points: cal.pts, image_size: [cal.img.naturalWidth, cal.img.naturalHeight] }) });
+  const j = await r.json();
+  if (!j.ok) { $("calres").textContent = "Failed: " + j.error; return; }
+  const worst = Object.entries(j.per_point_px).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, e]) => `${k} ${e.toFixed(1)} px`).join(", ");
+  const p = j.camera_position_m;
+  $("calres").textContent = `Saved. RMS ${j.rms_px.toFixed(2)} px over ${j.points} points (good: < 2 px).\nWorst: ${worst}\n` +
+    `Camera at x ${p[0].toFixed(2)}, y ${p[1].toFixed(2)}, height ${p[2].toFixed(2)} m · lens ${j.hfov_deg.toFixed(0)}° wide.\n` +
+    `Use "Check" on the camera card to see the court drawn over the live image.`;
+  thumbs[cal.name] = "overlay";
+};
+window.addEventListener("resize", () => { if ($("cal").style.display === "block") drawCal(); renderCourt(); });
+</script>
+</body>
+</html>
