@@ -14,6 +14,25 @@ Quick loop while editing: `.venv/bin/python -m pytest -q -m "not slow"` (under 1
 | Browser | `tests/test_browser_edge.py` (slow, needs Chrome) | real phone page in headless Chrome with a fake camera playing a synthetic rally: WebAssembly detection in a Web Worker -> server -> calls |
 | End to end | `test_live.py`, `test_edge.py`, `test_session_tools.py` (slow) | real server + simulated phones (browser, app in Python, app's own JS): accuracy, latency, clock sync, no wrong OUT, logging, replay, report |
 
+| Lob / play state | `tests/test_playstate.py` | dead ball vs moonball, lob off a volley, toss-back not announced, rally window for lobs, cameras combined by covariance |
+| Calibration | `tests/test_autocal.py`, `tests/test_crosscal.py` | "Snap to lines" from bad taps, nonsense taps refused; re-snap of a drifted calibration; shared-bounce refinement (bumped camera, few noisy clicks), no proposal when cameras agree |
+| Practice court | `tests/test_court_scale.py` | `--court-scale`: lines scale, ball does not; play thresholds scale; separate calibration folder |
+
+## Studies (not run by pytest)
+
+* `scripts/lob_study.py`: lobs (and drives) through the whole pipeline on mock data: four corner
+  cameras, gravity + drag + bounce physics, detections projected with noise and frame edges,
+  real replay, and again after the phone-side reducer. About 5 min. Results: docs/LOB_STUDY.md.
+* `scripts/reduce_dets.mjs in.jsonl out.jsonl`: run the app's reducer over a recorded `dets.jsonl`
+  (what the phone would have sent); replay the result to see what reduction costs.
+
+## Auto-commit
+
+A full passing run (`pytest` with no file / `-k` / `-m` selection) leaves `.bt_tests_ok`, a
+fingerprint of the tested working tree. At the end of each Claude Code response the Stop hook
+(`scripts/hooks/autocommit.py`) commits and pushes if the tree is still exactly that one. Off:
+`BT_AUTOCOMMIT=0`.
+
 ## When a golden test fails
 
 It means decisions changed. If that was **not** intended, it's a regression: fix it.

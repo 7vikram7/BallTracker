@@ -17,3 +17,8 @@ DebugScreenshots/
 data/live_demo/
 *.HEIC
 *.apk
+
+# local credentials (never commit)
+Secrets
+.bt_tests_ok
+data/experiments/lob_*/

@@ -23,8 +23,15 @@ from .geometry.camera import Camera, calibrate_from_points
 from .geometry.court import CourtSpec, ServiceSide, Side
 
 
-def _court(path: str | None) -> CourtSpec:
-    return CourtSpec.load(path) if path else CourtSpec.pickleball()
+def _court(path: str | None, scale: float | None = None) -> CourtSpec:
+    """Court from a YAML file (default: regulation pickleball), optionally scaled.
+
+    ``--court-scale 0.2`` is a 1/5-size practice court: every line scaled, the ball and the line
+    width kept real (a real ball on taped lines)."""
+    court = CourtSpec.load(path) if path else CourtSpec.pickleball()
+    if scale and scale != 1.0:
+        court = court.scaled(scale)
+    return court
 
 
 def _parse_serve(s: str | None):
@@ -42,7 +49,7 @@ def cmd_court(a: argparse.Namespace) -> None:
 
     from .synthetic import render_court_texture
 
-    court = _court(a.court)
+    court = _court(a.court, getattr(a, "court_scale", None))
     tex, _ = render_court_texture(court, mm_per_px=10.0, margin_m=1.0)
     cv2.imwrite(a.out, tex)
     print(json.dumps(court.to_dict(), indent=2))
@@ -114,7 +121,7 @@ def click_points(image: np.ndarray, names: list[str]) -> dict[str, list[float]]:
 
 
 def cmd_calibrate(a: argparse.Namespace) -> None:
-    court = _court(a.court)
+    court = _court(a.court, getattr(a, "court_scale", None))
     kp = court.keypoints()
     if a.points:
         data = json.loads(Path(a.points).read_text())
@@ -187,7 +194,7 @@ def cmd_analyze(a: argparse.Namespace) -> None:
     from .pipeline import PipelineConfig, analyze_frames
     from .video import VideoFileSource
 
-    court = _court(a.court)
+    court = _court(a.court, getattr(a, "court_scale", None))
     cam = Camera.load(a.calib)
     src = VideoFileSource(a.video, fps_override=a.fps)
     if not a.fps and src.info.fps <= 61:
@@ -260,7 +267,7 @@ def _hsv_overrides(spec: str | None) -> dict:
 def cmd_serve(a: argparse.Namespace) -> None:
     from .live.server import run
 
-    run(_court(a.court), Path(a.data), host=a.host, https_port=a.https_port, http_port=a.http_port,
+    run(_court(a.court, a.court_scale), Path(a.data), host=a.host, https_port=a.https_port, http_port=a.http_port,
         tls=not a.no_tls, record=a.record, detector_overrides=_hsv_overrides(a.ball_hsv),
         reduce=not a.full_rate)
 
@@ -336,6 +343,7 @@ def main(argv: list[str] | None = None) -> None:
 
     s = sub.add_parser("court", help="draw a court diagram")
     s.add_argument("--court", help="court YAML (default: regulation pickleball)")
+    s.add_argument("--court-scale", type=float, default=None, help="scale of a practice court, e.g. 0.2 for a 1/5-size court (default 1 = regulation)")
     s.add_argument("--out", default="court.png")
     s.set_defaults(fn=cmd_court)
 
@@ -354,6 +362,7 @@ def main(argv: list[str] | None = None) -> None:
     s = sub.add_parser("calibrate", help="calibrate a camera from court keypoints")
     s.add_argument("video", nargs="?")
     s.add_argument("--court")
+    s.add_argument("--court-scale", type=float, default=None, help="scale of a practice court, e.g. 0.2 for a 1/5-size court (default 1 = regulation)")
     s.add_argument("--points", help="points JSON instead of clicking")
     s.add_argument("--at", type=float, default=0.0, help="time (s) of the frame to click on")
     s.add_argument("--hfov", type=float, default=65.0, help="horizontal FOV guess (deg)")
@@ -366,6 +375,7 @@ def main(argv: list[str] | None = None) -> None:
     s.add_argument("video")
     s.add_argument("--calib", required=True)
     s.add_argument("--court")
+    s.add_argument("--court-scale", type=float, default=None, help="scale of a practice court, e.g. 0.2 for a 1/5-size court (default 1 = regulation)")
     s.add_argument("--out", default="results.json")
     s.add_argument("--annotate", help="write annotated MP4 here")
     s.add_argument("--serve", help="judge every bounce as a serve, e.g. A:right")
@@ -401,6 +411,7 @@ def main(argv: list[str] | None = None) -> None:
 
     s = sub.add_parser("serve", help="run the live server (phones stream to it, calls on the dashboard)")
     s.add_argument("--court", help="court YAML (default: regulation pickleball)")
+    s.add_argument("--court-scale", type=float, default=None, help="scale of a practice court, e.g. 0.2 for a 1/5-size court (default 1 = regulation)")
     s.add_argument("--data", default="data/live", help="calibrations, certificates and sessions go here")
     s.add_argument("--host", default=None, help="address to listen on (default: all IPv4 and IPv6)")
     s.add_argument("--https-port", type=int, default=8443)

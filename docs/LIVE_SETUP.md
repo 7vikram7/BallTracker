@@ -71,15 +71,25 @@ On the dashboard, click **Calibrate** on the camera's card:
    points one at a time; the small court diagram shows where each one is.
    **Side A** is the bottom of the diagram; *left/right* are as seen standing
    behind baseline A looking at the net.
-2. Click each point as precisely as you can (a magnifier follows the cursor).
-   **Skip** points you can't see. Use at least 6, spread across the image;
-   the net-post tops help most.
+2. **Fast way:** click the 4 corners of the half nearest this camera (the two baseline
+   corners, then the two kitchen-line corners; roughly is fine; pick the point in the list
+   first if it is not the current one), then **Snap to lines**. Every point is placed on the
+   painted lines (blue crosses) and the message says how well the lines fit (good: under
+   1.5 px). Check the blue points with the magnifier; re-click any that are wrong.
+   **By hand:** click each point where the outer edges of the lines meet; skip points you
+   can't see; at least 6, spread across the image. (Net-post tops are not used: portable
+   posts stand outside the sidelines.)
 3. Click **Calibrate**. Aim for **RMS under 2 px**. Then click **Check** on the camera card: the court lines
    should sit on the real lines in the live image.
 
-If the phone moves (knocked, re-mounted), calibrate again. A scaled-down floor
-court works the same way: start the server with `bt serve --court configs/court_half_scale.yaml`
-(or your own measured YAML).
+When you save a camera, the other cameras are re-checked against their own court lines, and
+during play the bounces they see together with the saved camera refine them. If a better
+calibration is found, the camera card shows **Refined calibration ready** with how much it
+improves; **Review** opens it for checking, **Dismiss** ignores it. Nothing changes without you.
+
+If the phone moves (knocked, re-mounted), calibrate again. A scaled-down floor court works the
+same way: start the server with `bt serve --court-scale 0.2` (or `--court my_court.yaml` for a
+measured court); see [MINI_COURT.md](MINI_COURT.md).
 
 ## 4. Play
 

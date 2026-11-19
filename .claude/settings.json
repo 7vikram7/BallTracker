@@ -16,8 +16,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$CLAUDE_PROJECT_DIR/scripts/hooks/evolution_log.py\" stop",
-            "timeout": 10
+            "command": "IN=$(cat); printf '%s' \"$IN\" | python3 \"$CLAUDE_PROJECT_DIR/scripts/hooks/evolution_log.py\" stop; printf '%s' \"$IN\" | python3 \"$CLAUDE_PROJECT_DIR/scripts/hooks/autocommit.py\"",
+            "timeout": 120,
+            "statusMessage": "Evolution log; commit + push if the tests passed"
           }
         ]
       }

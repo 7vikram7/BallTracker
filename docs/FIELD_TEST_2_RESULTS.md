@@ -59,3 +59,15 @@ Useful **as a second opinion on the lines they see well**, with conditions:
 * Each still needs its own calibration with ≥ 6 points it can see; a narrow view of one corner
   has few points, so aim to include a corner plus the kitchen/centre T or the far sideline.
 * They also add load on the hotspot (about 5 devices max on an iPhone hotspot).
+
+
+## Added 2026-11-19 (evening): the two phones disagreed by ~0.9 m on the far half
+
+Matching the 29-31 bounces both phones reported: on side B (near the Samsung) they agree within
+6-18 cm; on side A (the Samsung's far half, behind the net) the Samsung puts every bounce 0.7-1.5 m
+closer to the net than the iPhone (median 87 cm). Its own stated uncertainty there was 15-30 cm,
+so this is a bias, ~10 px in its image, not noise. Snapping both calibrations to the court lines
+reduced it only to 80 cm; refining the Samsung from shared bounces (iPhone as reference,
+`geometry/crosscal.py`) reduced it to 21-49 cm on held-out bounces. Lessons: a camera placed low
+measures its far half poorly; put cameras at both ends (each owns its near half) and let the
+dashboard's shared-bounce refinement run during the first minutes of play.

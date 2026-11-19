@@ -35,6 +35,8 @@
   .add { display:flex; gap:14px; align-items:flex-start; flex-wrap:wrap; margin-top:12px; font-size:13px; }
   .add img { width:150px; height:150px; background:#fff; border-radius:8px; }
   code { font-family:ui-monospace, Menlo, monospace; font-size:12.5px; word-break:break-all; }
+  .prop { margin-top:8px; padding:8px; border-radius:8px; background:rgba(60,200,255,.12); font-size:13px; }
+  .prop .grp { display:inline-flex; margin-left:6px; }
   #courtwrap svg { width:100%; height:auto; display:block; max-height:62vh; }
   table { width:100%; border-collapse:collapse; font-size:13px; }
   th, td { text-align:left; padding:5px 6px; border-bottom:1px solid var(--line); white-space:nowrap; }
@@ -121,11 +123,11 @@
     <div class="img"><canvas id="calc"></canvas><canvas id="loupe" width="180" height="180"></canvas></div>
     <div class="side">
       <b id="caltitle">Calibrate</b>
-      <p class="mut" style="margin:6px 0">Click each court point on the image as accurately as you can (use the magnifier). Skip points you can't see. At least 6 points, spread over the image (near and far side, left and right). Click where the <b>outer edges</b> of the lines meet.</p>
+      <p class="mut" style="margin:6px 0"><b>Fastest:</b> click the 4 corners of the half nearest this camera (baseline corners, then kitchen-line corners; roughly is fine), then press <b>Snap to lines</b>: every point is placed on the painted lines (blue crosses). Check them with the magnifier, re-click any that are wrong (pick it in the list), then <b>Calibrate</b>.<br>By hand: click each point where the <b>outer edges</b> of the lines meet; skip points you can't see; at least 6, spread over the image.</p>
       <div id="minicourt"></div>
       <div id="kplist"></div>
       <div class="grp" style="margin-top:10px">
-        <button id="calskip">Skip</button><button id="calundo">Undo</button><button id="calsnap">New snapshot</button>
+        <button class="pri" id="callines" title="Place every point on the painted lines, starting from your clicks (or the current calibration)">Snap to lines</button><button id="calskip">Skip</button><button id="calundo">Undo</button><button id="calsnap">New snapshot</button>
       </div>
       <div class="grp" style="margin-top:8px">
         <button class="pri" id="caldone">Calibrate</button><button id="calcancel">Close</button><button class="danger" id="calclear">Remove calibration</button>
@@ -225,8 +227,17 @@ function camCard(c) {
         ? `<b style='color:var(--warn)'>${fmt(c.cands_per_frame, 1)} candidates/frame</b> (yellow-green objects in view?)`
         : `${fmt(c.cands_per_frame, 1)} candidates/frame`)} · ${c.max_tracks ?? "–"} tracks</span>
     <span>clock</span><span>rtt ${fmt(clk.rtt_ms, 0, " ms")} · ±${fmt(clk.uncertainty_ms, 1, " ms")} · drift ${fmt(clk.drift_ppm, 0, " ppm")} · ${c.ts_source || "?"}</span>
-    <span>calibration</span><span>${c.calibrated ? "RMS " + fmt(c.calib_rms_px, 2, " px") : "<b style='color:var(--warn)'>needed for calls</b>"}</span>
+    <span>calibration</span><span>${c.calibrated ? "RMS " + fmt(c.calib_rms_px, 2, " px") : "<b style='color:var(--warn)'>needed for calls</b>"}${c.shared_bounces ? ` · ${c.shared_bounces} bounces shared with the reference camera (disagree ${fmt(c.shared_disagreement_cm, 1, " cm")})` : ""}</span>
     <span>bounces</span><span>${c.bounces ?? 0}</span>`;
+  let pr = card.querySelector(".prop");
+  if (c.proposal) {
+    if (!pr) { pr = document.createElement("div"); pr.className = "prop"; card.querySelector(".body").appendChild(pr); }
+    pr.innerHTML = `<b>Refined calibration ready</b> (${c.proposal.source === "bounces" ? "from shared bounces" : "snapped to the court lines"}): ${c.proposal.message}
+      <span class="grp"><button class="pri">Review</button><button>Dismiss</button></span>`;
+    const [rv, ds] = pr.querySelectorAll("button");
+    rv.onclick = () => openCal(c.name, c.proposal.points, "proposal-" + c.proposal.source);
+    ds.onclick = () => fetch(`/api/cameras/${encodeURIComponent(c.name)}/proposal`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "dismiss" }) });
+  } else if (pr) pr.remove();
   return card;
 }
 function refreshThumbs() {
@@ -304,7 +315,7 @@ function connect() {
 fetch("/api/court").then((r) => r.json()).then((c) => { court = c; renderCourt(); connect(); });
 
 // ---------------------------------------------------------------- calibration
-const cal = { name: null, img: null, pts: {}, order: [], cur: 0, scale: 1, ox: 0, oy: 0, skipped: new Set() };
+const cal = { name: null, img: null, pts: {}, order: [], cur: 0, scale: 1, ox: 0, oy: 0, skipped: new Set(), auto: new Set(), source: "clicks" };
 const KP_HELP = {
   A_left_corner: "Baseline A × left sideline (outer corner)", A_right_corner: "Baseline A × right sideline (outer corner)",
   B_left_corner: "Baseline B × left sideline (outer corner)", B_right_corner: "Baseline B × right sideline (outer corner)",
@@ -315,15 +326,17 @@ const KP_HELP = {
   net_left_ground: "Net line × left sideline (ground)", net_right_ground: "Net line × right sideline (ground)",
   net_left_top: "Top of net at left sideline", net_right_top: "Top of net at right sideline", net_centre_top: "Top of net at centre",
 };
-async function openCal(name) {
-  cal.name = name; cal.pts = {}; cal.skipped = new Set(); cal.cur = 0;
+async function openCal(name, preset = null, source = "clicks") {
+  cal.name = name; cal.pts = {}; cal.skipped = new Set(); cal.cur = 0; cal.auto = new Set(); cal.source = source;
   cal.order = Object.keys(court.keypoints);
   $("caltitle").textContent = "Calibrate " + name; $("calres").textContent = "";
   $("cal").style.display = "block";
+  if (preset) { for (const [k, v] of Object.entries(preset)) { cal.pts[k] = v; cal.auto.add(k); }
+    $("calres").textContent = "Proposed points (blue). Check them on the image; re-click any that are off; then Calibrate to save."; }
   await snapshot(); renderKp();
 }
 async function snapshot() {
-  const img = new Image(); img.src = `/api/cameras/${encodeURIComponent(cal.name)}/frame.jpg?t=${Date.now()}`;
+  const img = new Image(); img.src = `/api/cameras/${encodeURIComponent(cal.name)}/frame.jpg?cal=1&t=${Date.now()}`;
   await img.decode().catch(() => {}); cal.img = img; drawCal();
 }
 function drawCal(mx, my) {
@@ -336,8 +349,9 @@ function drawCal(mx, my) {
   g.font = "12px system-ui";
   for (const [k, [u, v]] of Object.entries(cal.pts)) {
     const x = cal.ox + u * cal.scale, y = cal.oy + v * cal.scale;
-    g.strokeStyle = "#ff0"; g.lineWidth = 2; g.beginPath(); g.moveTo(x - 7, y); g.lineTo(x + 7, y); g.moveTo(x, y - 7); g.lineTo(x, y + 7); g.stroke();
-    g.fillStyle = "#ff0"; g.fillText(k, x + 6, y - 6);
+    const col = cal.auto.has(k) ? "#3cf" : "#ff0";
+    g.strokeStyle = col; g.lineWidth = 2; g.beginPath(); g.moveTo(x - 7, y); g.lineTo(x + 7, y); g.moveTo(x, y - 7); g.lineTo(x, y + 7); g.stroke();
+    g.fillStyle = col; g.fillText(k, x + 6, y - 6);
   }
   const L = $("loupe"), lg = L.getContext("2d"); lg.fillStyle = "#000"; lg.fillRect(0, 0, 180, 180);
   if (mx != null) {
@@ -365,7 +379,21 @@ $("calc").onclick = (e) => {
   if (!cal.img) return;
   const r = e.target.getBoundingClientRect(), u = (e.clientX - r.left - cal.ox) / cal.scale, v = (e.clientY - r.top - cal.oy) / cal.scale;
   if (u < 0 || v < 0 || u > cal.img.naturalWidth || v > cal.img.naturalHeight) return;
-  const k = cal.order[cal.cur]; cal.pts[k] = [u, v]; cal.skipped.delete(k); advance();
+  const k = cal.order[cal.cur]; cal.pts[k] = [u, v]; cal.skipped.delete(k); cal.auto.delete(k); advance();
+};
+$("callines").onclick = async () => {
+  const n = Object.keys(cal.pts).length;
+  $("calres").textContent = n >= 4 ? "Snapping to the court lines…" : "Snapping (from the current calibration, or fully automatic if there is none)…";
+  const r = await fetch(`/api/cameras/${encodeURIComponent(cal.name)}/snap`, { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ points: cal.pts }) });
+  const j = await r.json();
+  if (!j.points || !Object.keys(j.points).length) { $("calres").textContent = "Snap failed: " + (j.message || j.error || "no court lines found") + ". Click the points by hand."; return; }
+  cal.pts = {}; cal.auto = new Set();
+  for (const [k, v] of Object.entries(j.points)) { cal.pts[k] = v; cal.auto.add(k); }
+  cal.source = "snap"; renderKp(); drawCal();
+  $("calres").textContent = (j.ok ? `Snapped from ${j.from}: ${j.lines} lines found, fit ${j.fit_px} px. ` : `Weak snap: ${j.message} `) +
+    "Check the blue points with the magnifier; re-click any that are off (pick it in the list), then Calibrate." +
+    (j.ambiguous ? " Side A/B could not be told apart: if A and B are swapped, put the printed markers in view or click the 4 corners and snap again." : "");
 };
 $("calskip").onclick = () => { const k = cal.order[cal.cur]; delete cal.pts[k]; cal.skipped.add(k); advance(); };
 $("calundo").onclick = () => { const k = cal.order[cal.cur]; if (cal.pts[k]) delete cal.pts[k]; else if (cal.cur > 0) { cal.cur--; delete cal.pts[cal.order[cal.cur]]; } renderKp(); drawCal(); };
@@ -380,7 +408,8 @@ $("caldone").onclick = async () => {
   const n = Object.keys(cal.pts).length;
   if (n < 4) { $("calres").textContent = "Click at least 4 points (6+ recommended)."; return; }
   const r = await fetch(`/api/cameras/${encodeURIComponent(cal.name)}/calibrate`, { method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ points: cal.pts, image_size: [cal.img.naturalWidth, cal.img.naturalHeight] }) });
+    body: JSON.stringify({ points: cal.pts, image_size: [cal.img.naturalWidth, cal.img.naturalHeight],
+      source: cal.auto.size ? cal.source : "clicks" }) });
   const j = await r.json();
   if (!j.ok) { $("calres").textContent = "Failed: " + j.error; return; }
   const worst = Object.entries(j.per_point_px).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, e]) => `${k} ${e.toFixed(1)} px`).join(", ");

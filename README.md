@@ -28,7 +28,12 @@ in [data/samples/](data/samples/README.md); full sessions are not in git.
 
 Where to read: [docs/DECISIONS.md](docs/DECISIONS.md) (what was decided and why),
 [docs/evolution/LOG.md](docs/evolution/LOG.md) (request/outcome history, written by a Claude Code
-hook), [docs/FIELD_TEST_2_RESULTS.md](docs/FIELD_TEST_2_RESULTS.md) (latest field results).
+hook), [docs/FIELD_TEST_2_RESULTS.md](docs/FIELD_TEST_2_RESULTS.md) (latest field results),
+[docs/LOB_STUDY.md](docs/LOB_STUDY.md) (lobs through every stage, on mock data),
+[docs/MINI_COURT.md](docs/MINI_COURT.md) (what mini-court tests can and cannot show).
+
+A passing full `pytest` run is committed and pushed automatically at the end of each Claude Code
+response (`scripts/hooks/autocommit.py`; off with `BT_AUTOCOMMIT=0`).
 
 ## Try it without footage (synthetic)
 
@@ -67,9 +72,15 @@ bt serve                 # then open http://localhost:8080/dashboard on the Mac
                          # (--record: also keep previews; --full-rate: app phones send every frame)
                          # and https://<mac-ip>:8443/phone on each phone
                          # (the phone page finds the ball on the phone by default: C++ -> WebAssembly)
+bt serve --court-scale 0.2   # a 1/5-size practice court (lines scaled, real ball)
 bt live-demo             # no phones: server + simulated phones, scored vs truth
 bt live-demo --edge      # same, but the phones behave like the native app (send detections only)
 ```
+
+Calibrating a camera on the dashboard: **Calibrate**, click the 4 corners of the half nearest the
+camera roughly, **Snap to lines**, check the blue points, **Calibrate**. When a camera is saved,
+the other cameras are re-snapped, and during play bounces seen together with that camera refine
+the others; refinements appear on the camera card as proposals to review.
 
 Full guide: [docs/LIVE_SETUP.md](docs/LIVE_SETUP.md).
 

@@ -44,7 +44,7 @@ from .geometry.court import CourtSpec
 from .tracking import Track
 
 ALGO = "kink_bounce"
-ALGO_VERSION = "0.3.0"
+ALGO_VERSION = "0.4.0"  # 0.4: velocity covariance; checks only what the camera measured
 
 
 @dataclass
@@ -70,6 +70,7 @@ class BounceConfig:
     h_ratio_range: tuple[float, float] = (0.3, 2.5)  # along-the-view speed is poorly observed by one camera
     max_turn_deg: float = 60.0  # catches paddle hits (direction reverses), not spin
     max_fit_px: float = 2.5  # or 3x the 2D fit noise, whichever is larger
+    implausible_sigmas: float = 2.0  # out of range by more than this many sd of the measurement
 
 
 def _lsq(A: np.ndarray, Y: np.ndarray) -> np.ndarray:
@@ -209,14 +210,67 @@ def ballistic_check(camera: Camera, t: np.ndarray, uv: np.ndarray, tb: float, P:
         if not np.all(ok_depth):
             return {"ok": False, "reason": "behind camera"}
         res = camera.project(X) - uv[m]
-        out[name] = (vel, float(np.sqrt(np.mean(np.sum(res**2, axis=1)) / 2)))
-    vi, ri = out["in"]
-    vo, ro = out["out"]
+        rms = float(np.sqrt(np.mean(np.sum(res**2, axis=1)) / 2))
+        # Velocity covariance. One camera measures the velocity across its view very well and
+        # along its view (towards / away from it) poorly: the covariance says which is which,
+        # so the plausibility checks and the play state only trust what was measured.
+        # The pixel noise floor covers unmodelled drag / spin / calibration error.
+        sig = max(rms, VEL_SIGMA_FLOOR_PX)
+        try:
+            cov = sig * sig * np.linalg.inv(A.T @ A)
+        except np.linalg.LinAlgError:
+            cov = np.eye(3) * 1e4
+        out[name] = (vel, rms, cov)
+    vi, ri, ci = out["in"]
+    vo, ro, co = out["out"]
     hi, ho = np.hypot(vi[0], vi[1]), np.hypot(vo[0], vo[1])
     e = vo[2] / -vi[2] if vi[2] < 0 else float("inf")
     ang = float(np.degrees(np.arccos(np.clip((vi[:2] @ vo[:2]) / max(hi * ho, 1e-9), -1, 1)))) if hi > 0.5 and ho > 0.5 else 0.0
     return {"vz_in": float(vi[2]), "vz_out": float(vo[2]), "e": float(e), "h_ratio": float(ho / max(hi, 1e-9)),
-            "turn_deg": ang, "rms_in_px": ri, "rms_out_px": ro, "v_in": vi.tolist(), "v_out": vo.tolist()}
+            "turn_deg": ang, "rms_in_px": ri, "rms_out_px": ro, "v_in": vi.tolist(), "v_out": vo.tolist(),
+            "v_in_cov": ci.tolist(), "v_out_cov": co.tolist(),
+            "sd": {"h_in": _sd_along(ci, vi), "h_out": _sd_along(co, vo), "turn_in_deg": _sd_turn_deg(ci, vi),
+                   "turn_out_deg": _sd_turn_deg(co, vo), "vz_in": float(np.sqrt(ci[2, 2])),
+                   "vz_out": float(np.sqrt(co[2, 2]))}}
+
+
+# Calibrated on the lob study (scripts/lob_study.py): with a 1 px floor the real velocity errors were
+# 2-5x the predicted ones (contact-time error, drag, calibration are not in the model).
+VEL_SIGMA_FLOOR_PX = 4.0
+
+
+def _sd_along(cov: np.ndarray, v: np.ndarray) -> float:
+    """Standard deviation of the horizontal speed |v_xy|."""
+    h = np.hypot(v[0], v[1])
+    if h < 1e-6:
+        return float(np.sqrt(max(cov[0, 0], cov[1, 1])))
+    u = np.array([v[0], v[1]]) / h
+    return float(np.sqrt(max(u @ cov[:2, :2] @ u, 0.0)))
+
+
+def _sd_turn_deg(cov: np.ndarray, v: np.ndarray) -> float:
+    """Standard deviation of the horizontal direction of v, degrees (180 = unknown)."""
+    h = np.hypot(v[0], v[1])
+    if h < 1e-6:
+        return 180.0
+    n = np.array([-v[1], v[0]]) / h
+    return float(min(180.0, np.degrees(np.sqrt(max(n @ cov[:2, :2] @ n, 0.0)) / h)))
+
+
+def _round_physics(ph: dict) -> dict:
+    out = {}
+    for k, v in ph.items():
+        if isinstance(v, float):
+            out[k] = round(v, 3)
+        elif k in ("v_in", "v_out"):
+            out[k] = [round(float(x), 3) for x in v]
+        elif k in ("v_in_cov", "v_out_cov"):
+            out[k] = [[float(f"{x:.6g}") for x in row] for row in v]
+        elif k == "sd":
+            out[k] = {a: round(float(b), 3) for a, b in v.items()}
+        else:
+            out[k] = v
+    return out
 
 
 def _image_up(camera: Camera, px: np.ndarray, z: float) -> np.ndarray | None:
@@ -328,13 +382,29 @@ class BounceDetector:
             ph["rejected"] = ph.get("reason", "fit failed")
             return False
         fit_lim = max(cfg.max_fit_px, 3.0 * noise)
+        sd = ph.get("sd") or {}
+        k = cfg.implausible_sigmas
+        # Horizontal speed change and turn are implausible only if out of range by more than k
+        # standard deviations of this camera's measurement: one camera barely sees motion along
+        # its line of sight, and true bounces were rejected for "turning" or "changing speed"
+        # that was only measurement error (lob study, 2026-11-19).
+        hi, ho = float(np.hypot(*ph["v_in"][:2])), float(np.hypot(*ph["v_out"][:2]))
+        # Restitution stays a plain range check: in the lob study every true bounce had
+        # e = 0.19-0.80 from every camera, and paddle hits (e = 1.5-12) must stay out even when
+        # the fall before the hit is poorly measured.
+        e_bad = not (cfg.e_range[0] <= ph["e"] <= cfg.e_range[1])
+        s_hi, s_ho = sd.get("h_in", 0.0), sd.get("h_out", 0.0)
+        r_lo, r_hi = cfg.h_ratio_range
+        h_bad = hi >= 1.0 and ((ho - r_hi * hi > k * np.hypot(s_ho, r_hi * s_hi)) or
+                               (r_lo * hi - ho > k * np.hypot(s_ho, r_lo * s_hi)))
+        s_turn = float(np.hypot(sd.get("turn_in_deg", 0.0), sd.get("turn_out_deg", 0.0)))
+        turn_bad = ph["turn_deg"] - cfg.max_turn_deg > k * s_turn
         checks = [
             (ph["vz_in"] <= -cfg.min_vz_in, "not descending before contact"),
             (ph["vz_out"] >= cfg.min_vz_out, "not rising after contact"),
-            (cfg.e_range[0] <= ph["e"] <= cfg.e_range[1], "implausible restitution"),
-            (np.hypot(*ph["v_in"][:2]) < 1.0 or cfg.h_ratio_range[0] <= ph["h_ratio"] <= cfg.h_ratio_range[1],
-             "implausible horizontal speed change"),
-            (ph["turn_deg"] <= cfg.max_turn_deg, "direction changed too much"),
+            (not e_bad, "implausible restitution"),
+            (not h_bad, "implausible horizontal speed change"),
+            (not turn_bad, "direction changed too much"),
             (max(ph["rms_in_px"], ph["rms_out_px"]) <= fit_lim, "trajectory not consistent with a ground contact"),
         ]
         for ok, why in checks:
@@ -414,7 +484,5 @@ class BounceDetector:
             supporting_observations=obs_ids,
             provenance=Provenance(algorithm=ALGO, version=ALGO_VERSION,
                                   params={**self.provenance().params,
-                                          "physics": {k: (round(v, 3) if isinstance(v, float)
-                                                          else [round(float(x), 3) for x in v] if k in ("v_in", "v_out")
-                                                          else v) for k, v in physics.items()}}),
+                                          "physics": _round_physics(physics)}),
         )

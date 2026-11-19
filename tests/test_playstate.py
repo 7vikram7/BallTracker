@@ -77,3 +77,40 @@ def test_missing_flight_data_keeps_the_old_behaviour():
     assert r["play"] == "start of play" and r["announce_ok"]
     r = ps.assess(e.model_copy(update={"t": 50.0}), [e], serve=False)
     assert r["play"] == "start of play (no flight data)" and r["announce_ok"]
+
+
+def test_moonball_is_not_a_dead_ball_and_a_lob_off_a_volley_is_called():
+    # no bounce for a long time before (volley exchange), then a high lob lands 25 cm long:
+    # slow horizontally (2.6 m/s) but falling at 11 m/s
+    d = judge_all([bounce(30.0, 0.5, 6.95, (0.3, 2.6, -11.0), (0.2, 2.1, 6.0))])
+    assert d[0].diagnostics["play"] == "start of play (lob)"
+    assert d[0].call.result.value == "OUT" and d[0].call.announce
+
+
+def test_ball_tossed_back_to_the_server_is_not_announced():
+    # underhand toss across the court: 3 m/s horizontally, falling at 5.5 m/s (apex ~1.5 m)
+    d = judge_all([bounce(40.0, 0.5, 7.2, (0.0, 3.0, -5.5), (0.0, 2.4, 3.0))])
+    assert d[0].diagnostics["play"] == "not clearly a shot"
+    assert not d[0].call.announce
+
+
+def test_rally_window_stretches_for_a_lob_in_the_air():
+    # bounce on A, a volley exchange, then a lob that falls at 10 m/s lands long on B 4.8 s later
+    evs = [bounce(50.0, 0.0, -5.0, (0, -9, -5), (0, -7, 3)),
+           bounce(54.8, 0.5, 6.95, (0.2, 3.5, -10.0), (0.2, 2.8, 5.5))]
+    d = judge_all(evs)
+    assert d[1].diagnostics["play"] == "rally" and d[1].call.announce
+
+
+def test_cameras_are_combined_by_what_each_measured():
+    from balltracker.live.playstate import flight
+
+    # camera 1 sees x well (looks along y), camera 2 sees y well; each is wildly off along its view
+    def ev(v, cov, cam):
+        e = bounce(1.0, 0, 0, v, v, cam=cam)
+        e.provenance.params["physics"].update(v_in_cov=cov, v_out_cov=cov)
+        return e
+    c1 = ev((3.0, 9.0, -8.0), [[0.01, 0, 0], [0, 25.0, 0], [0, 0, 0.04]], "c1")   # y very uncertain
+    c2 = ev((-4.0, 4.0, -8.1), [[25.0, 0, 0], [0, 0.01, 0], [0, 0, 0.04]], "c2")  # x very uncertain
+    fl = flight([c1, c2])
+    assert np.allclose(fl["v_in"][:2], [3.0, 4.0], atol=0.05)

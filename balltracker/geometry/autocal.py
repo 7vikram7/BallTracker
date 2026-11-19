@@ -35,7 +35,7 @@ import numpy as np
 from .court import CourtSpec
 
 ALGO = "court_lines_autocal"
-ALGO_VERSION = "0.1.0"
+ALGO_VERSION = "0.2.0"  # 0.2: stripe search + robust fit (snap)
 
 MARKER_DICT = cv2.aruco.DICT_4X4_50
 MARKER_SIDE = {0: "A", 1: "B"}
@@ -394,6 +394,183 @@ def refine_lsq(H: np.ndarray, court: CourtSpec, mask: np.ndarray, bands: tuple[f
     return Hn
 
 
+# ------------------------------------------------------------------ snapping to the lines
+def _ridge_image(img: np.ndarray) -> np.ndarray:
+    """Brightness used to find painted lines: white paint is bright in every channel, so the
+    darkest channel separates it from a blue/green court better than grey levels do."""
+    if img.ndim == 2:
+        g = img.astype(np.float32)
+    else:
+        g = 0.6 * img.min(axis=2).astype(np.float32) + 0.4 * cv2.cvtColor(img, cv2.COLOR_BGR2GRAY).astype(np.float32)
+    return cv2.GaussianBlur(g, (0, 0), 0.8)
+
+
+def _net_quad(H: np.ndarray, court: CourtSpec, size: tuple[int, int]) -> np.ndarray | None:
+    """Image outline of the net (posts included), from a camera fitted to the ground homography."""
+    from .camera import calibrate_from_points
+
+    kp = court.keypoints()
+    names = [k for k, v in kp.items() if v[2] == 0]
+    obj = np.array([kp[k] for k in names], float)
+    q = (H @ np.c_[obj[:, :2], np.ones(len(obj))].T).T
+    if np.any(q[:, 2] <= 0):
+        return None
+    uv = q[:, :2] / q[:, 2:3]
+    try:
+        cam = calibrate_from_points(obj, uv, size, hfov_guess_deg=65.0)
+    except Exception:
+        return None
+    hw = court.half_w + court.net_post_offset
+    corners = np.array([[-hw, 0, 0], [hw, 0, 0], [hw, 0, court.net_height_sideline + 0.05],
+                        [-hw, 0, court.net_height_sideline + 0.05]], float)
+    if np.any(cam.depth(corners) <= 0):
+        return None
+    return cam.project(corners).astype(np.float32)
+
+
+def _line_samples(H: np.ndarray, court: CourtSpec, ridge: np.ndarray, band: float, focus: np.ndarray | None,
+                  net: np.ndarray | None, step_px: float = 6.0, max_per_line: int = 160):
+    """Find each painted line near where H predicts it: sample along the projected line, look
+    across it for a narrow bright stripe (brighter than both sides), keep the stripe nearest
+    the prediction. -> list of (model segment, image points (N,2))."""
+    h, w = ridge.shape
+    lw = court.line_width
+    out = []
+    for (p0, p1) in _line_segments_model(court):
+        p0, p1 = np.array(p0, float), np.array(p1, float)
+        L_m = float(np.hypot(*(p1 - p0)))
+        n_m = max(int(L_m / 0.05), 2)
+        tm = np.linspace(0.02, 0.98, n_m)
+        M = p0[None] + tm[:, None] * (p1 - p0)[None]
+        if focus is not None:
+            M = M[(M[:, 0] >= focus[0]) & (M[:, 0] <= focus[1]) & (M[:, 1] >= focus[2]) & (M[:, 1] <= focus[3])]
+            if len(M) < 2:
+                continue
+        q = (H @ np.c_[M, np.ones(len(M))].T).T
+        good = q[:, 2] > 1e-9
+        M, q = M[good], q[good]
+        if len(M) < 2:
+            continue
+        P = q[:, :2] / q[:, 2:3]
+        inside = (P[:, 0] > 3) & (P[:, 0] < w - 4) & (P[:, 1] > 3) & (P[:, 1] < h - 4)
+        if net is not None:
+            inside &= np.array([cv2.pointPolygonTest(net, (float(x), float(y)), True) < -4 for x, y in P])
+        M, P = M[inside], P[inside]
+        if len(P) < 4:
+            continue
+        # thin to ~step_px spacing in the image
+        seg_len = np.r_[0, np.cumsum(np.hypot(*np.diff(P, axis=0).T))]
+        keep = np.unique(np.searchsorted(seg_len, np.arange(0, seg_len[-1], step_px)))
+        keep = keep[keep < len(P)]
+        if len(keep) > max_per_line:
+            keep = keep[np.linspace(0, len(keep) - 1, max_per_line).astype(int)]
+        M, P = M[keep], P[keep]
+        if len(P) < 4:
+            continue
+        d = (P[-1] - P[0]) / max(np.hypot(*(P[-1] - P[0])), 1e-9)
+        n = np.array([-d[1], d[0]])
+        # expected painted width in pixels at each sample
+        dm = (p1 - p0) / L_m
+        nm = np.array([-dm[1], dm[0]])
+        q2 = (H @ np.c_[M + lw * nm, np.ones(len(M))].T).T
+        P2 = q2[:, :2] / q2[:, 2:3]
+        wpx = np.abs((P2 - P) @ n)
+        off = int(np.ceil(band)) + 14
+        s = np.arange(-off, off + 1, dtype=np.float32)
+        X = (P[:, 0:1] + s[None] * n[0]).astype(np.float32)
+        Y = (P[:, 1:2] + s[None] * n[1]).astype(np.float32)
+        prof = cv2.remap(ridge, X, Y, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+        pts = []
+        for i in range(len(P)):
+            dd = int(np.clip(round(0.8 * wpx[i] + 2.5), 2, 14))
+            I = prof[i]
+            R = I[dd:-dd] - np.maximum(I[:-2 * dd], I[2 * dd:])
+            ss = s[dd:-dd]
+            win = np.abs(ss) <= band
+            if not win.any():
+                continue
+            Rw = np.where(win, R, -1e9)
+            peaks = np.nonzero((Rw[1:-1] > Rw[:-2]) & (Rw[1:-1] >= Rw[2:]) & (Rw[1:-1] > 10.0))[0] + 1
+            if len(peaks) == 0:
+                continue
+            strong = peaks[Rw[peaks] >= 0.5 * Rw[peaks].max()]
+            j = strong[np.argmin(np.abs(ss[strong]))]
+            a, b, c = R[j - 1], R[j], R[j + 1]
+            den = a - 2 * b + c
+            sub = 0.5 * (a - c) / den if abs(den) > 1e-6 else 0.0
+            pts.append(P[i] + (ss[j] + np.clip(sub, -0.5, 0.5)) * n)
+        if len(pts) >= 4:
+            out.append(((tuple(p0), tuple(p1)), np.array(pts)))
+    return out
+
+
+def _near_half_focus(H: np.ndarray, court: CourtSpec) -> np.ndarray:
+    """The court half that looks biggest in the image (lines far apart: safe to snap first)."""
+    hw, hl = court.half_w, court.half_l
+    areas = []
+    for y0, y1 in ((-hl, 0.0), (0.0, hl)):
+        q = (H @ np.array([[-hw, y0, 1], [hw, y0, 1], [hw, y1, 1], [-hw, y1, 1]], float).T).T
+        if np.any(q[:, 2] <= 0):
+            areas.append(0.0)
+            continue
+        P = q[:, :2] / q[:, 2:3]
+        areas.append(0.5 * abs(np.dot(P[:, 0], np.roll(P[:, 1], 1)) - np.dot(P[:, 1], np.roll(P[:, 0], 1))))
+    y0, y1 = ((-hl, 0.0), (0.0, hl))[int(np.argmax(areas))]
+    return np.array([-hw - 0.5, hw + 0.5, y0 - 0.5, y1 + 0.5])
+
+
+def snap(img: np.ndarray, court: CourtSpec, H0: np.ndarray, focus: np.ndarray | None = None,
+         bands: tuple[float, ...] = (40.0, 24.0, 24.0, 12.0, 6.0, 4.0), focus_rounds: int = 2) -> tuple[np.ndarray, dict]:
+    """Refine a rough court -> image homography by fitting every visible painted line to the
+    stripes found next to its predicted position (robust least squares, shrinking search band).
+    The first ``focus_rounds`` rounds use only ``focus`` = (x0, x1, y0, y1), a court region where
+    the start is reliable and the lines are far apart in the image (default: the half nearer the
+    camera); later rounds use the whole court. Starting on the far half, where lines are a few
+    pixels apart, could lock onto the wrong stripes."""
+    from scipy.optimize import least_squares
+
+    h, w = img.shape[:2]
+    ridge = _ridge_image(img)
+    Hn = H0 / H0[2, 2]
+    if focus is None:
+        focus = _near_half_focus(Hn, court)
+    info = {"rounds": []}
+    for it, band in enumerate(bands):
+        net = _net_quad(Hn, court, (w, h))
+        groups = _line_samples(Hn, court, ridge, band, focus if it < focus_rounds else None, net)
+        n_pts = sum(len(g[1]) for g in groups)
+        if len(groups) < 3 or n_pts < 30:
+            info["rounds"].append({"band": band, "lines": len(groups), "points": n_pts, "stopped": True})
+            break
+
+        def resid(h8, groups=groups):
+            Hm = np.append(h8, 1.0).reshape(3, 3)
+            out = []
+            for (p0, p1), P in groups:
+                a = Hm @ np.array([*p0, 1.0])
+                b = Hm @ np.array([*p1, 1.0])
+                if a[2] <= 1e-9 or b[2] <= 1e-9:
+                    out.append(np.full(len(P), 1e3))
+                    continue
+                a, b = a[:2] / a[2], b[:2] / b[2]
+                d = b - a
+                out.append(((P[:, 0] - a[0]) * d[1] - (P[:, 1] - a[1]) * d[0]) / max(np.hypot(*d), 1e-9))
+            return np.concatenate(out)
+
+        r = least_squares(resid, Hn.ravel()[:8], loss="soft_l1", f_scale=max(1.5, band / 8), max_nfev=300,
+                          x_scale="jac")
+        Hn = np.append(r.x, 1.0).reshape(3, 3)
+        res = np.abs(resid(r.x))
+        info["rounds"].append({"band": band, "lines": len(groups), "points": n_pts,
+                               "median_px": round(float(np.median(res)), 2),
+                               "inliers": round(float(np.mean(res < 3.0)), 2)})
+    last = info["rounds"][-1] if info["rounds"] else {}
+    info["fit_px"] = last.get("median_px")
+    info["inliers"] = last.get("inliers")
+    info["lines"] = last.get("lines", 0)
+    return Hn, info
+
+
 def _fit_line_near(H: np.ndarray, pix: np.ndarray, ends: list[tuple[float, float]], band: float = 6.0):
     a, b = (H @ np.array([*ends[0], 1.0])), (H @ np.array([*ends[1], 1.0]))
     if a[2] <= 0 or b[2] <= 0:
@@ -418,7 +595,7 @@ def _fit_line_near(H: np.ndarray, pix: np.ndarray, ends: list[tuple[float, float
 
 
 def refine_from(img: np.ndarray, court: CourtSpec, init_points: dict[str, list[float]]) -> AutoCalResult:
-    """Snap a rough calibration to the court lines: from >= 4 named points (rough clicks, or the
+    """Snap a rough calibration to the court lines: from >= 4 named points (rough taps, or the
     keypoints of the camera's previous calibration) to every keypoint, precisely. The names fix
     which half is A, so there is no ambiguity."""
     h, w = img.shape[:2]
@@ -426,23 +603,22 @@ def refine_from(img: np.ndarray, court: CourtSpec, init_points: dict[str, list[f
     names = [k for k in init_points if k in kp and kp[k][2] == 0 and "net_" not in k]
     if len(names) < 4:
         return AutoCalResult(False, message="need at least 4 ground points to start from")
-    H0, _ = cv2.findHomography(np.array([kp[k][:2] for k in names], np.float64),
-                               np.array([init_points[k] for k in names], np.float64), 0)
-    if H0 is None:
-        return AutoCalResult(False, message="those points do not define a court")
-    mask = line_mask(img)
-    _, _, samples = _model(court)
-    dist = cv2.distanceTransform(255 - mask, cv2.DIST_L2, 3)
-    H = refine_lsq(H0, court, mask, bands=(30.0, 15.0, 8.0, 5.0))
-    score = float(_score_many(H[None], samples, dist)[0])
-    score0 = float(_score_many(H0[None], samples, dist)[0])
-    if score < score0:  # the snap made it worse: keep the starting point
-        H, score = H0, score0
+    obj = np.array([kp[k][:2] for k in names], np.float64)
+    H0, _ = cv2.findHomography(obj, np.array([init_points[k] for k in names], np.float64), 0)
+    if H0 is None or not _orientation_ok(H0, court):
+        return AutoCalResult(False, message="those points do not define a court (check the names / order)")
+    # First rounds: around the given points if they cover one half (taps), else the near half.
+    pad = 1.5
+    one_half = np.all(obj[:, 1] <= 0.01) or np.all(obj[:, 1] >= -0.01)
+    focus = np.array([obj[:, 0].min() - pad, obj[:, 0].max() + pad, obj[:, 1].min() - pad,
+                      obj[:, 1].max() + pad]) if one_half else None
+    H, info = snap(img, court, H0, focus)
     pts = _project_keypoints(H, court, w, h)
-    ok = score > 0.35 and len(pts) >= 4
-    return AutoCalResult(ok, pts, round(score, 3), "given points", False, {},
-                         "" if ok else f"weak match (score {score:.2f}): check the points by hand",
-                         {"start_score": round(score0, 3)})
+    fit, inl, nl = info.get("fit_px"), info.get("inliers") or 0.0, info.get("lines", 0)
+    ok = fit is not None and fit <= 2.5 and inl >= 0.6 and nl >= 4 and len(pts) >= 4 and _orientation_ok(H, court)
+    msg = "" if ok else (f"weak match ({nl} lines, median {fit} px, {inl:.0%} on the lines): "
+                         "check the points by hand")
+    return AutoCalResult(ok, pts, round(float(inl), 3), "given points", False, {}, msg, info)
 
 
 def _project_keypoints(H: np.ndarray, court: CourtSpec, w: int, h: int) -> dict[str, list[float]]:

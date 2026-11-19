@@ -42,6 +42,7 @@ from ..events import BounceEvent
 from ..geometry.calib_check import NET_TOP_POINTS, suspect_points
 from ..geometry.camera import CalibrationError, Camera, calibrate_from_points
 from ..geometry.court import CourtSpec, ServiceSide, Side
+from ..geometry.crosscal import BouncePairs, Pair, refine_with_bounces, resnap_proposal, visible_keypoints
 from ..sports.pickleball.line_calling import LineCallConfig, PickleballLineCaller, ServeContext
 from .clocksync import ClockSync
 from .fusion import Decision, LiveJudge
@@ -127,6 +128,10 @@ class CamState:
     app: dict = field(default_factory=dict)
     reduced: bool = False  # the phone sends a reduced frame stream (seq jumps are intended)
     skipped_by_phone: int = 0  # frames the phone chose not to send
+    cal_jpeg: bytes | None = None  # the frame the calibration dialog shows (snap works on the same image)
+    cal_points: dict = field(default_factory=dict)  # the points of the last saved calibration
+    proposal: dict | None = None  # refined calibration offered for review (geometry/crosscal.py)
+    pairs: BouncePairs = field(default_factory=BouncePairs)  # bounces shared with the reference camera
 
     def fps_in(self) -> float:
         a = self.arrivals
@@ -141,7 +146,11 @@ class LiveServer:
                  queue_frames: int = 45, hold_s: float = 0.6, reduce: bool = True):
         self.court = court
         self.data_dir = Path(data_dir)
-        self.calib_dir = self.data_dir / "calibration"
+        # Calibrations belong to a court: a practice court gets its own folder, so a camera
+        # calibrated on the mini court is never used on the full court (and vice versa).
+        sc = getattr(court, "scale", 1.0)
+        self.calib_dir = self.data_dir / ("calibration" if sc == 1.0 else f"calibration-scale{sc:g}")
+        self.reference_cam: str | None = None  # last camera the user confirmed (crosscal bounce pairs)
         self.calib_dir.mkdir(parents=True, exist_ok=True)
         self.session_dir = self.data_dir / "sessions" / time.strftime("%Y%m%d-%H%M%S")
         self.session_dir.mkdir(parents=True, exist_ok=True)
@@ -322,6 +331,10 @@ class LiveServer:
             await asyncio.sleep(0.05)
             for d in self.judge.poll(self.now(), self.expected_cameras()):
                 obj = self._decision_obj(d)
+                try:
+                    self._collect_pairs(d)
+                except Exception as e:  # pragma: no cover
+                    log.warning("pair collection failed: %s", e)
                 self._log_event(obj)
                 self.all_decisions.append(obj)
                 await self._broadcast(obj)
@@ -341,6 +354,8 @@ class LiveServer:
                 "fps_req": c.fps_req, "fps_in": c.fps_in(), "frames_in": c.frames_in, "drops": c.drops,
                 "unsynced": c.unsynced, "seq_gaps": c.seq_gaps, "ts_source": c.ts_source,
                 "clock": c.clock.summary(), "calibrated": c.camera is not None,
+                "proposal": None if c.proposal is None else {k: v for k, v in c.proposal.items() if k != "camera"},
+                "shared_bounces": len(c.pairs.pairs), "shared_disagreement_cm": c.pairs.disagreement_cm(),
                 "calib_rms_px": c.camera.reprojection_rms_px if c.camera else None,
                 "calib_size": list(c.camera.image_size) if c.camera else None,
                 "proc_fps": c.stats.get("proc_fps"), "busy": c.stats.get("busy"),
@@ -597,6 +612,8 @@ class LiveServer:
         cam = self.cams.get(request.match_info["name"])
         if cam is None or cam.latest_jpeg is None:
             raise web.HTTPNotFound(text="no frame yet")
+        if request.query.get("cal"):
+            cam.cal_jpeg = cam.latest_jpeg
         return web.Response(body=cam.latest_jpeg, content_type="image/jpeg", headers={"Cache-Control": "no-store"})
 
     async def api_overlay(self, request: web.Request) -> web.Response:
@@ -640,8 +657,17 @@ class LiveServer:
         except CalibrationError:
             suspects = []
         self.set_camera_model(cam, camera)
+        cam.cal_points = {k: list(map(float, pts[k])) for k in names}
+        cam.proposal = None
+        # This camera is now the reference for the others: their shared-bounce pairs were measured
+        # against older calibrations, so start collecting again; and re-snap every other camera.
+        self.reference_cam = cam.name
+        for other in self.cams.values():
+            other.pairs = BouncePairs()
+        asyncio.get_running_loop().create_task(self._refine_others(cam.name))
         pos = camera.position
         self._log_event({"type": "calibrated", "camera": cam.name, "t": self.now(), "rms_px": camera.reprojection_rms_px,
+                         "source": body.get("source", "clicks"),
                          "points": len(names), "image_size": [int(size[0]), int(size[1])],
                          "clicked": {k: list(map(float, pts[k])) for k in names},
                          "per_point_px": {k: float(e) for k, e in zip(names, errs)}, "camera_model": camera.to_dict(),
@@ -652,6 +678,98 @@ class LiveServer:
             "camera_position_m": [float(x) for x in pos], "focal_px": camera.focal_px,
             "hfov_deg": float(np.degrees(2 * np.arctan(camera.image_size[0] / 2 / camera.focal_px))),
         })
+
+    def _cal_image(self, cam: CamState):
+        import cv2
+
+        jpg = cam.cal_jpeg or cam.latest_jpeg
+        return None if jpg is None else cv2.imdecode(np.frombuffer(jpg, np.uint8), cv2.IMREAD_COLOR)
+
+    async def api_snap(self, request: web.Request) -> web.Response:
+        """Snap rough points (>= 4 taps, or the current calibration) to the court lines; returns
+        every keypoint for review. Nothing is saved until the user presses Calibrate."""
+        from ..geometry.autocal import autocalibrate, refine_from
+
+        cam = self.cams.get(request.match_info["name"])
+        if cam is None:
+            raise web.HTTPNotFound(text="unknown camera")
+        img = self._cal_image(cam)
+        if img is None:
+            return web.json_response({"ok": False, "error": "No image from this camera yet."}, status=400)
+        body = await request.json()
+        pts = {k: v for k, v in (body.get("points") or {}).items() if k in self.court.keypoints()}
+        loop = asyncio.get_running_loop()
+        if len(pts) >= 4:
+            res = await loop.run_in_executor(None, refine_from, img, self.court, pts)
+            how = "your points"
+        elif cam.camera is not None:
+            res = await loop.run_in_executor(None, refine_from, img, self.court, visible_keypoints(cam.camera, self.court))
+            how = "the current calibration"
+        else:
+            res = await loop.run_in_executor(None, autocalibrate, img, self.court)
+            how = "nothing (fully automatic, experimental)"
+        d = res.debug or {}
+        self._log_event({"type": "snap", "camera": cam.name, "t": self.now(), "ok": res.ok, "from": how,
+                         "fit_px": d.get("fit_px"), "lines": d.get("lines"), "inliers": d.get("inliers"),
+                         "points": res.points})
+        return web.json_response({"ok": res.ok, "points": res.points, "from": how, "message": res.message,
+                                  "fit_px": d.get("fit_px"), "lines": d.get("lines"), "inliers": d.get("inliers"),
+                                  "ambiguous": res.ambiguous, "flipped_points": res.flipped_points,
+                                  "image_size": [int(img.shape[1]), int(img.shape[0])]})
+
+    async def api_proposal(self, request: web.Request) -> web.Response:
+        cam = self.cams.get(request.match_info["name"])
+        if cam is None:
+            raise web.HTTPNotFound(text="unknown camera")
+        body = await request.json()
+        if body.get("action") == "dismiss":
+            self._log_event({"type": "proposal_dismissed", "camera": cam.name, "t": self.now(),
+                             "source": (cam.proposal or {}).get("source")})
+            cam.proposal = None
+            await self._broadcast(self.state())
+        return web.json_response({"ok": True})
+
+    async def _refine_others(self, confirmed: str) -> None:
+        """After a camera is confirmed: snap every other calibrated camera to its court lines and
+        offer the result for review (geometry/crosscal.py)."""
+        loop = asyncio.get_running_loop()
+        for cam in list(self.cams.values()):
+            if cam.name == confirmed or cam.camera is None or cam.latest_jpeg is None:
+                continue
+            img = self._cal_image(cam)
+            try:
+                prop = await loop.run_in_executor(None, resnap_proposal, img, self.court, cam.camera)
+            except Exception as e:  # pragma: no cover - never break the server for a proposal
+                log.warning("re-snap of %s failed: %s", cam.name, e)
+                continue
+            if prop:
+                cam.proposal = {**prop, "after": confirmed, "t": self.now()}
+                self._log_event({"type": "proposal", "camera": cam.name, "t": self.now(),
+                                 **{k: v for k, v in prop.items() if k != "camera"}})
+                await self._broadcast(self.state())
+
+    def _collect_pairs(self, d: Decision) -> None:
+        """Bounces seen by the reference camera and another camera -> ground correspondences for
+        the other camera; propose a refined calibration once there are enough."""
+        ref = self.reference_cam
+        if ref is None or d.suppressed or len(d.sources) < 2:
+            return
+        by_cam = {e.camera_ids[0]: e for e in d.sources if len(e.camera_ids) == 1}
+        r = by_cam.get(ref)
+        if r is None:
+            return
+        for name, e in by_cam.items():
+            cam = self.cams.get(name)
+            if name == ref or cam is None or cam.camera is None or e.pixel is None:
+                continue
+            cam.pairs.add(Pair(e.t, tuple(e.pixel), (r.position.x, r.position.y), ref, (e.position.x, e.position.y)))
+            n = len(cam.pairs.pairs)
+            if cam.pairs.ready() and (cam.proposal is None or cam.proposal.get("source") != "bounces") and n % 5 == 0:
+                kp = cam.cal_points or visible_keypoints(cam.camera, self.court)
+                prop = refine_with_bounces(cam.camera, self.court, kp, cam.pairs)
+                if prop:
+                    cam.proposal = {k: v for k, v in prop.items() if k != "camera"} | {"t": self.now()}
+                    self._log_event({"type": "proposal", "camera": cam.name, "t": self.now(), **cam.proposal})
 
     async def api_context(self, request: web.Request) -> web.Response:
         body = await request.json()
@@ -714,6 +832,8 @@ class LiveServer:
         app.router.add_get("/api/cameras/{name}/frame.jpg", self.api_frame)
         app.router.add_get("/api/cameras/{name}/overlay.jpg", self.api_overlay)
         app.router.add_post("/api/cameras/{name}/calibrate", self.api_calibrate)
+        app.router.add_post("/api/cameras/{name}/snap", self.api_snap)
+        app.router.add_post("/api/cameras/{name}/proposal", self.api_proposal)
         app.router.add_post("/api/context", self.api_context)
         app.router.add_get("/ca.crt", self.ca_cert)
         app.router.add_get("/qr.svg", self.qr)
@@ -791,6 +911,7 @@ def decision_dict(d: Decision, latency_s: float | None) -> dict:
         "inflation": d.diagnostics.get("inflation"), "suppressed": d.suppressed,
         "unconfirmed_by": d.diagnostics.get("unconfirmed_by"),
         "play": d.diagnostics.get("play"), "h_in_mps": d.diagnostics.get("h_in_mps"),
+        "vz_in_mps": d.diagnostics.get("vz_in_mps"),
     }
     if c is not None:
         obj.update(result=c.result.value, p_out=c.p_out, line=c.nearest_line,
@@ -850,6 +971,9 @@ def run(court: CourtSpec, data_dir: Path, *, host: str | None = None, https_port
         if ssl_ctx is not None:
             await web.TCPSite(runner, host, https_port, ssl_context=ssl_ctx).start()
         print("\nBallTracker live server", flush=True)
+        if court.scale != 1.0:
+            print(f"  Court: PRACTICE, scale {court.scale:g} ({2 * court.half_w:.2f} m x {2 * court.half_l:.2f} m);"
+                  f" calibrations in {srv.calib_dir.name}/")
         print(f"  Dashboard (on this Mac):  http://localhost:{http_port}/dashboard")
         for u in srv.phone_urls:
             print(f"  Phones (same Wi-Fi):      {u}")

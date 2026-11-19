@@ -1,5 +1,6 @@
-"""Automatic court calibration (experimental): works on clean synthetic courts; real footage
-(field test 2) still gives 10-25 px errors at far corners, so it is not offered in the dashboard yet."""
+"""Court calibration from the lines: "Snap to lines" (4 rough taps -> every keypoint) is in the
+dashboard; on the field-test-2 frames it fit the painted lines to < 1.1 px from taps 25 px off.
+Fully automatic detection (no taps) works on clean synthetic courts only: experimental."""
 
 import numpy as np
 
@@ -41,3 +42,23 @@ def test_line_mask_keeps_paint_drops_blank_court():
     u, v = map(int, truth["A_centre_kitchen"])
     assert m[max(0, v - 6):v + 6, max(0, u - 6):u + 6].any()
     assert 0.002 < (m > 0).mean() < 0.15
+
+
+def test_snap_survives_bad_taps_and_reports_a_good_fit():
+    scene, img, truth = _scene("corner_high")
+    rng = np.random.default_rng(5)
+    near = ["B_left_corner", "B_right_corner", "B_kitchen_left", "B_kitchen_right"]
+    for trial in range(3):
+        taps = {k: (np.array(truth[k]) + rng.normal(0, 25, 2)).tolist() for k in near}
+        res = refine_from(img, scene.court, taps)
+        med, n = _err(res.points, truth)
+        assert res.ok and med < 2.5 and n >= 8, (trial, med, n, res.message, res.debug.get("rounds"))
+        assert res.debug["fit_px"] < 1.5 and res.debug["inliers"] > 0.8
+
+
+def test_snap_refuses_nonsense_taps():
+    scene, img, truth = _scene("behind_baseline_high")
+    # four taps in a tiny cluster in the sky: not a court
+    res = refine_from(img, scene.court, {"A_left_corner": [100, 50], "A_right_corner": [110, 52],
+                                         "A_kitchen_left": [104, 60], "A_kitchen_right": [112, 61]})
+    assert not res.ok

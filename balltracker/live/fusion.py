@@ -102,7 +102,8 @@ class LiveJudge:
                  can_see: Callable[[str, float, float], bool] | None = None, corroborate: bool = True,
                  play: PlayConfig | None = None, max_single_camera_std_m: float = 0.15):
         self.court = court
-        self.play = PlayState(play)  # is the ball in play? (see playstate.py)
+        # is the ball in play? (see playstate.py; thresholds follow the court's scale)
+        self.play = PlayState(play or PlayConfig.for_scale(getattr(court, "scale", 1.0)))
         # One camera alone may announce only when it measures the bounce well across the line
         # (field test 2: a camera 16 m away along the court gave +-25 cm with possible bias).
         self.max_single_camera_std_m = max_single_camera_std_m
@@ -160,7 +161,7 @@ class LiveJudge:
         serve, self.serve = self.serve, None
         ps = self.play.assess(b, list(g.events), serve is not None) if self.play.cfg.enabled else None
         if ps is not None:
-            diag = {**diag, "play": ps["play"], "h_in_mps": ps["h_in_mps"]}
+            diag = {**diag, "play": ps["play"], "h_in_mps": ps["h_in_mps"], "vz_in_mps": ps.get("vz_in_mps")}
             if ps["suppress"]:
                 return Decision(b, None, list(g.events), diag, suppressed=ps["suppress"])
         call = self.caller.call(b, serve)
