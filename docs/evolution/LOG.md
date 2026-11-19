@@ -119,3 +119,55 @@ On your real frames, the far corners came out 15–25 px off; your careful click
 > 
 > Also, will tests on my mini court help you?
 > I could run some tests on it helping you test and refine your logic if needed.  Add the start command to accept a parameter of court scale if needed.
+
+### 2026-11-19 20:42 · outcome
+
+Everything is done, tested (all 83 tests pass) and pushed to https://github.com/7vikram7/BallTracker.
+
+## Git setup
+- **Clone:** the GitHub repo was empty, so I connected your existing folder to it and pushed, rather than cloning into a new folder. The result is the same, and the history is kept.
+- **Commit name:** commits are by `vikramgore2007`. The repo is public, so I used the repo owner's GitHub no-reply address instead of your gmail, which would otherwise be published. Tell me if you want a different address.
+- **Personal names:** before the first push I rewrote the 3 local commits. A test camera named after a person is now called `samsung`.
+- **Secrets:** your token is in the macOS keychain, and `Secrets` is excluded from git.
+
+## Commit and push after passing tests
+I didn't run the 7-minute suite inside the hook after every response; it would be too slow. Instead:
+- A full test run that passes records a fingerprint of exactly the files that were tested.
+- At the end of each of my responses, a hook commits and pushes if nothing has changed since that passing run.
+- Untested changes wait for the next passing run.
+- Files that look like credentials, and anything over 5 MB, are refused.
+- I tested it end to end on a throwaway copy. `BT_AUTOCOMMIT=0` turns it off.
+
+## Auto-calibration: tap 4 corners, then "Snap to lines"
+In the calibration dialog, click the 4 corners of the half nearest the camera (roughly is fine) and press **Snap to lines**. Every point is placed on the painted lines for you to check, then you save as before.
+- On both field-test frames, starting from taps 25 px off, the snapped lines matched the paint to within 1.1 px.
+- Zoomed in, the snapped corners sit on the paint, while your original clicks were 8–10 px off.
+- Fully automatic detection with no taps still fails on that venue (neighbouring courts and nets), so it stays experimental.
+
+## Refining the other cameras after one is confirmed
+When you save a camera:
+- **Re-check:** every other camera is re-snapped to its own lines.
+- **Shared bounces:** during play, bounces seen by both the saved camera and another camera become reference points for the other camera.
+
+Better calibrations appear on the camera card as **Refined calibration ready**, with Review and Dismiss buttons. Nothing changes without you.
+
+This found a real problem in your field-test data. The iPhone and the Samsung agreed within 6–18 cm on the Samsung's half, but on the far half the Samsung put every bounce 0.7–1.5 m closer to the net. Refining the Samsung from about 15 shared bounces cut that to 21–49 cm, measured on bounces it wasn't fitted to. A low camera measures its far half poorly; cameras at both ends cover each other.
+
+## Lobs
+I simulated 54 shots (drives and three heights of lob) with 4 cameras and ran them through the whole pipeline. The full write-up is in `docs/LOB_STUDY.md`.
+- **Finding and placing bounces was fine:** every lob bounce was found, about 1 cm median error.
+- **Calling them was broken.** One camera measures sideways motion precisely but motion toward or away from it badly (errors of several m/s). That made cameras throw out real lob bounces, and made the play state label lobs "dead ball" or "not clearly a shot".
+- **Fixes:**
+  - each camera's measurement now carries its uncertainty;
+  - the cameras are combined using it;
+  - a fast steep descent now counts as a real shot;
+  - the rally window stretches for balls that stay in the air longer.
+- **Result:** OUT lobs announced went from 11 to 19 of 21, with no wrong OUT calls before or after. The 2 still silent are only 3 cm out, below the confidence bar on purpose.
+- **Not tested:** the simulation doesn't show whether the phones can see the ball against the sky or roof lights. Toss a few high balls at the next session.
+
+## Mini court
+Yes, sessions there would help, and `bt serve --court-scale 0.2` is ready. The most valuable test is 20–30 bounces near each line with the contact points marked, which gives accuracy ground truth we don't have. It's also a good place to test snap calibration on tape, high balls, and the Samsung's speed and heat. It can't show real ball speeds or distances. `docs/MINI_COURT.md` has dimensions for each scale and what to send back.
+
+## Still to do
+- Rebuild the iPhone app and reinstall it, and install the latest APK on the Android phones.
+- Snap and the refinement proposals work in tests but haven't been tried on a real phone through the dashboard yet.
