@@ -232,3 +232,15 @@ I found and fixed a bug while checking the uploaded data, and pushed the fix (co
 **Note for anyone using field test 2:** a replay makes about 1,060 decisions, while the live run made 605. That's because the Mac dropped about 19,000 frames during the session (fixed since), and a replay processes every frame. This is now explained in `docs/HANDOFF.md`, so another agent compares replays before and after a change, not replays against the live run.
 
 A second full replay with the fix is still running. When it finishes I'll tell you how many of the field-test decisions it changed.
+
+### 2026-11-20 14:34 · outcome
+
+The second replay of field test 2 finished, and the fix doesn't change any calls you'd hear: 25 spoken OUTs before and after.
+
+- **The error is gone:** no negative-uncertainty warnings in the hour-long replay. The first run had them.
+- **What changed (17 of about 1,060 decisions, all silent ones):**
+  - 9 bounces got a different label, such as "start of play" becoming "not clearly a shot", mostly moving toward the more cautious label.
+  - 5 switched between IN and UNCERTAIN.
+  - 3 bounces dropped out and 2 new ones appeared.
+
+Everything is pushed and nothing is pending. Another agent can now replay this session itself and compare before and after its own changes.
