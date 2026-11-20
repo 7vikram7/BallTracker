@@ -155,3 +155,26 @@ def test_frame_clock_removes_browser_timestamp_jitter():
     fc = FrameClock()
     out = np.array([fc.fit(x) for x in t2 + rng.uniform(-0.002, 0.002, 600)])
     assert np.median(np.abs(out[340:] - t2[340:])) < 0.6e-3
+
+
+def test_cameras_that_disagree_do_not_announce():
+    # Field 2026-11-20: one camera was labelled from the other end, so the two cameras put the same
+    # bounce up to 2.5 m apart. Fusion inflates the covariance on disagreement; that alone does not
+    # stop a call: here a precise camera says OUT by 30 cm, another says IN by 50 cm, and the
+    # inflated fusion still gave p(out) 0.97 -> spoken OUT. Now: silent unless both say OUT.
+    from balltracker.live.playstate import PlayConfig
+
+    court = CourtSpec.pickleball()
+    hl = court.half_l
+    j = LiveJudge(court, hold_s=0.3, play=PlayConfig(enabled=False))
+    j.add(_ev(0.0, hl + 0.30, 0.01, 0.01, t=1.0, cam="c1"), now=1.05)
+    j.add(_ev(0.0, hl - 0.50, 0.04, 0.04, t=1.0, cam="c2"), now=1.06)
+    d = j.poll(2.0)[0]
+    assert d.diagnostics["inflation"] > 100 and d.call.p_out > 0.95
+    assert not d.call.announce and d.diagnostics.get("cameras_disagree")
+    # Disagreeing on the exact spot but both clearly OUT: still announced.
+    j2 = LiveJudge(court, hold_s=0.3, play=PlayConfig(enabled=False))
+    j2.add(_ev(0.0, hl + 0.30, 0.02, 0.02, t=1.0, cam="c1"), now=1.05)
+    j2.add(_ev(0.0, hl + 0.50, 0.02, 0.02, t=1.0, cam="c2"), now=1.06)
+    d2 = j2.poll(2.0)[0]
+    assert d2.diagnostics["inflation"] > 1 and d2.call.call_text == "OUT"

@@ -1,0 +1,47 @@
+{
+  "kind": "balltracker.session",
+  "schema": 1,
+  "session": "20261120-202244",
+  "started_at": "2026-11-20T20:22:44+0530",
+  "command": "~/Vikram/BallTracker/.venv/bin/bt serve --court-scale 0.2",
+  "host": {
+    "python": "3.12.13",
+    "platform": "macOS-26.7.3-x86_64-i386-64bit",
+    "machine": "x86_64"
+  },
+  "git": {
+    "commit": "5942d70980619124b37f2b6b1bbaa893b2d83e1b",
+    "branch": "main",
+    "changed_files": 1
+  },
+  "versions": {
+    "balltracker": "0.1.0",
+    "bounce": "0.4.0",
+    "fusion": "0.1.0",
+    "mac_detector": "motion_color_baseline 0.1.0",
+    "phone_detector": "edge_color_motion 1.0.0",
+    "protocol": 2
+  },
+  "court": {
+    "name": "pickleball_x0.2",
+    "width": 1.2192,
+    "length": 2.68224,
+    "kitchen_depth": 0.42672,
+    "line_width": 0.0508,
+    "net_height_sideline": 0.18288000000000001,
+    "net_height_center": 0.17271999999999998,
+    "net_post_offset": 0.06095999999999999,
+    "ball_radius": 0.0371,
+    "contact_patch_radius": 0.01,
+    "scale": 0.2
+  },
+  "settings": {
+    "record": false,
+    "phone_reduction": true,
+    "detector_overrides": {},
+    "hold_s": 0.6,
+    "window_s": 0.08,
+    "corroborate": true
+  },
+  "summary": null
+}

@@ -11,8 +11,11 @@ Fusion is the standard inverse-covariance (information) weighting:
 
 so a camera that sees the bounce well (small covariance) dominates. If the
 cameras disagree by more than their uncertainties allow (chi-square test on
-the residuals), the fused covariance is inflated by the excess: the call
-becomes UNCERTAIN (silent) rather than confidently wrong.
+the residuals), the fused covariance is inflated by the excess, and the call
+is announced only if every camera on its own report makes the same call;
+otherwise it is UNCERTAIN (silent) rather than confidently wrong. (Inflation
+alone is not enough: a covariance much bigger than the court puts most of the
+probability outside it, i.e. p(out) -> 1.)
 
 A group is released ``hold_s`` after its first report arrived (waiting for
 slower cameras), or immediately once every calibrated camera has reported.
@@ -165,6 +168,15 @@ class LiveJudge:
             if ps["suppress"]:
                 return Decision(b, None, list(g.events), diag, suppressed=ps["suppress"])
         call = self.caller.call(b, serve)
+        if call.announce and diag.get("inflation", 1.0) > 1.0:
+            # The cameras disagree beyond their uncertainties. The inflated covariance can be far
+            # bigger than the court, and then p(out) -> 1 by itself (field 2026-11-20: one camera
+            # labelled from the other end, bounces 2.5 m apart, OUT spoken). Announce only if every
+            # camera, on its own report, makes the same announced call.
+            own = [self.caller.call(e, serve) for e in g.events]
+            if not all(c.announce and c.result == call.result for c in own):
+                call = call.model_copy(update={"result": CallResult.UNCERTAIN, "announce": False, "call_text": None})
+                diag = {**diag, "cameras_disagree": True}
         if ps is not None and not ps["announce_ok"] and call.announce:
             # A bounce, but not of a ball in play (dead ball / not clearly a shot): stay silent.
             call = call.model_copy(update={"result": CallResult.UNCERTAIN, "announce": False, "call_text": None})

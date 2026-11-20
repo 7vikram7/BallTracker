@@ -27,3 +27,14 @@ def test_practice_court_calibrations_are_kept_apart(tmp_path):
     a = LiveServer(_court(None), tmp_path)
     b = LiveServer(_court(None, 0.2), tmp_path)
     assert a.calib_dir.name == "calibration" and b.calib_dir.name == "calibration-scale0.2"
+
+
+def test_saved_mini_court_round_trips():
+    # court.json of a mini-court session holds the scaled sizes plus "scale": replay used to scale
+    # them again (0.04 instead of 0.2), so nearly every bounce came out OUT.
+    from balltracker.geometry.court import CourtSpec
+
+    mini = CourtSpec.pickleball().scaled(0.2)
+    back = CourtSpec.from_dict(mini.to_dict())
+    assert np.isclose(back.half_l, mini.half_l) and np.isclose(back.half_w, mini.half_w) and back.scale == 0.2
+    assert np.isclose(CourtSpec.from_dict({"scale": 0.5}).half_l, 0.5 * CourtSpec.pickleball().half_l)

@@ -1,0 +1,13 @@
+{
+  "name": "pickleball_x0.2",
+  "width": 1.2192,
+  "length": 2.68224,
+  "kitchen_depth": 0.42672,
+  "line_width": 0.0508,
+  "net_height_sideline": 0.18288000000000001,
+  "net_height_center": 0.17271999999999998,
+  "net_post_offset": 0.06095999999999999,
+  "ball_radius": 0.0371,
+  "contact_patch_radius": 0.01,
+  "scale": 0.2
+}

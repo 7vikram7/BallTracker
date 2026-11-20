@@ -15,6 +15,12 @@ Two independent sources, both offered to the user as a proposal (never applied s
    particular near the lines being called. After enough well-spread bounces, the camera is
    recalibrated from its keypoints plus the bounces, and the proposal reports how much
    closer the two cameras now agree.
+
+3. **Other end** (:func:`other_end_proposal`): side A is one fixed end of the court for every
+   camera. A camera labelled from the other end (its own nearest baseline called "A") fits its
+   points fine but puts every bounce at the point mirrored through the court centre (field
+   2026-11-20: up to 2.5 m apart on a mini court, every two-camera call UNCERTAIN). The shared
+   bounces show it after a few pairs; the proposal swaps the labels A<->B and left<->right.
 """
 
 from __future__ import annotations
@@ -67,6 +73,20 @@ def resnap_proposal(img: np.ndarray, court: CourtSpec, camera: Camera, min_move_
             "fit_px": res.debug.get("fit_px"), "lines": res.debug.get("lines"),
             "message": f"Snapping to the court lines moves the points by {moved:.1f} px (median); "
                        f"lines fit to {res.debug.get('fit_px')} px."}
+
+
+# Labels of the same physical point seen from the other end (a 180 deg turn about the court centre).
+OTHER_END = {}
+for _a, _b in [("A_left_corner", "B_right_corner"), ("A_right_corner", "B_left_corner"),
+               ("A_kitchen_left", "B_kitchen_right"), ("A_kitchen_right", "B_kitchen_left"),
+               ("A_centre_baseline", "B_centre_baseline"), ("A_centre_kitchen", "B_centre_kitchen"),
+               ("net_left_ground", "net_right_ground"), ("net_left_top", "net_right_top")]:
+    OTHER_END[_a], OTHER_END[_b] = _b, _a
+
+
+def from_other_end(points: dict[str, list[float]]) -> dict[str, list[float]]:
+    """The same clicks with A<->B and left<->right swapped."""
+    return {OTHER_END.get(k, k): v for k, v in points.items()}
 
 
 @dataclass
@@ -159,3 +179,24 @@ def refine_with_bounces(camera: Camera, court: CourtSpec, keypoints_px: dict[str
             "after_cm": round(a, 1), "ref_camera": good[-1].ref_camera, "bounces_only": bounces_only,
             "message": f"{len(good)} bounces seen together with {good[-1].ref_camera}: the two cameras disagree by "
                        f"{b:.1f} cm (median) now, {a:.1f} cm with the refined calibration."}
+
+
+def other_end_proposal(pairs: "BouncePairs", court: CourtSpec, keypoints_px: dict[str, list[float]],
+                       min_pairs: int = 3) -> dict | None:
+    """If this camera's bounces agree with the reference camera only after turning them 180 deg
+    about the court centre, propose its points relabelled from the other end."""
+    if len(pairs.pairs) < min_pairs or not keypoints_px:
+        return None
+    own = np.array([p.own_xy for p in pairs.pairs], float)
+    ref = np.array([p.ref_xy for p in pairs.pairs], float)
+    as_is = float(np.median(np.hypot(*(own - ref).T)))
+    turned = float(np.median(np.hypot(*(-own - ref).T)))
+    if as_is < max(0.3 * court.half_l, 0.2) or turned > 0.25 * as_is:
+        return None
+    ref_cam = pairs.pairs[-1].ref_camera
+    return {"source": "other_end", "points": from_other_end(keypoints_px),
+            "before_cm": round(100 * as_is, 1), "after_cm": round(100 * turned, 1), "pairs": len(pairs.pairs),
+            "message": f"This camera seems calibrated from the other end of the court: its bounces are "
+                       f"{100 * as_is:.0f} cm from where {ref_cam} puts them, but {100 * turned:.0f} cm if "
+                       f"A/B and left/right are swapped ({len(pairs.pairs)} shared bounces). Side A must be the "
+                       f"same end for every camera. Review swaps the labels; then Calibrate."}

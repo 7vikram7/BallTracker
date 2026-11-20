@@ -49,9 +49,18 @@ def dedupe_bounces(bounces: list, window_s: float) -> list:
     return sorted(kept, key=lambda b: b.t)
 
 
-def court_roi_mask(camera: Camera, court: CourtSpec, margin_m: float = 2.5, height_m: float = 6.0) -> np.ndarray:
-    """Image mask covering the volume above the court (+margin) where the ball can be."""
+def court_roi_mask(camera: Camera, court: CourtSpec, margin_m: float | None = None,
+                   height_m: float | None = None) -> np.ndarray:
+    """Image mask covering the volume above the court (+margin) where the ball can be.
+
+    The margin (2.5 m) and height (6 m) shrink with a practice court's scale, down to 0.5 m and
+    2 m: on a 0.2 mini court the full-size box took in lights and people around the court and the
+    tracker lost bounces (field 2026-11-20: 4 instead of 20 bounces seen by both cameras)."""
     import cv2
+
+    sc = float(getattr(court, "scale", 1.0) or 1.0)
+    margin_m = max(2.5 * sc, 0.5) if margin_m is None else margin_m
+    height_m = max(6.0 * sc, 2.0) if height_m is None else height_m
 
     w, h = camera.image_size
     hw, hl = court.half_w + margin_m, court.half_l + margin_m

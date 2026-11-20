@@ -123,7 +123,7 @@
     <div class="img"><canvas id="calc"></canvas><canvas id="loupe" width="180" height="180"></canvas></div>
     <div class="side">
       <b id="caltitle">Calibrate</b>
-      <p class="mut" style="margin:6px 0"><b>Fastest:</b> click the 4 corners of the half nearest this camera (baseline corners, then kitchen-line corners; roughly is fine), then press <b>Snap to lines</b>: every point is placed on the painted lines (blue crosses). Check them with the magnifier, re-click any that are wrong (pick it in the list), then <b>Calibrate</b>.<br>By hand: click each point where the <b>outer edges</b> of the lines meet; skip points you can't see; at least 6, spread over the image.</p>
+      <p class="mut" style="margin:6px 0"><b>Side A is the same end for every camera</b> (left/right as seen from behind A): a camera at the B end clicks B points, and B-left is then on its right.<br><b>Fastest:</b> click the 4 corners of the half nearest this camera (baseline corners, then kitchen-line corners; roughly is fine), then press <b>Snap to lines</b>: every point is placed on the painted lines (blue crosses). Check them with the magnifier, re-click any that are wrong (pick it in the list), then <b>Calibrate</b>.<br>By hand: click each point where the <b>outer edges</b> of the lines meet; skip points you can't see; at least 6, spread over the image.</p>
       <div id="minicourt"></div>
       <div id="kplist"></div>
       <div class="grp" style="margin-top:10px">
@@ -232,7 +232,9 @@ function camCard(c) {
   let pr = card.querySelector(".prop");
   if (c.proposal) {
     if (!pr) { pr = document.createElement("div"); pr.className = "prop"; card.querySelector(".body").appendChild(pr); }
-    pr.innerHTML = `<b>Refined calibration ready</b> (${c.proposal.source === "bounces" ? "from shared bounces" : "snapped to the court lines"}): ${c.proposal.message}
+    const head = c.proposal.source === "other_end" ? `<b>Calibrated from the other end?</b>`
+      : `<b>Refined calibration ready</b> (${c.proposal.source === "bounces" ? "from shared bounces" : "snapped to the court lines"}):`;
+    pr.innerHTML = `${head} ${c.proposal.message}
       <span class="grp"><button class="pri">Review</button><button>Dismiss</button></span>`;
     const [rv, ds] = pr.querySelectorAll("button");
     rv.onclick = () => openCal(c.name, c.proposal.points, "proposal-" + c.proposal.source);

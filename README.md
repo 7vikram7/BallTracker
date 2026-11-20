@@ -85,7 +85,7 @@ bt live-demo --edge      # same, but the phones behave like the native app (send
 ```
 
 Calibrating a camera on the dashboard: **Calibrate**, click the 4 corners of the half nearest the
-camera roughly, **Snap to lines**, check the blue points, **Calibrate**. When a camera is saved,
+camera roughly (side A is one fixed end for every camera: a camera at the other end clicks B points), **Snap to lines**, check the blue points, **Calibrate**. When a camera is saved,
 the other cameras are re-snapped, and during play bounces seen together with that camera refine
 the others; refinements appear on the camera card as proposals to review.
 

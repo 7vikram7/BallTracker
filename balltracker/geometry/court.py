@@ -22,6 +22,7 @@ same pipeline run on a taped indoor floor and a real hard court.
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -155,7 +156,12 @@ class CourtSpec:
                 d[k] = float(d[k]) * conv
         spec = cls(**d) if d else cls()
         if factor is not None:
-            spec = spec.scaled(float(factor))
+            if "width" in d or "length" in d:
+                # Explicit dimensions are final (to_dict writes the scaled sizes plus the factor);
+                # scaling them again shrank every saved mini court a second time on replay.
+                spec = dataclasses.replace(spec, scale=float(factor))
+            else:
+                spec = spec.scaled(float(factor))
         return spec
 
     @classmethod

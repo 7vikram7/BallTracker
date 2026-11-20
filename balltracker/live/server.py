@@ -42,7 +42,7 @@ from ..events import BounceEvent
 from ..geometry.calib_check import NET_TOP_POINTS, suspect_points
 from ..geometry.camera import CalibrationError, Camera, calibrate_from_points
 from ..geometry.court import CourtSpec, ServiceSide, Side
-from ..geometry.crosscal import BouncePairs, Pair, refine_with_bounces, resnap_proposal, visible_keypoints
+from ..geometry.crosscal import BouncePairs, Pair, other_end_proposal, refine_with_bounces, resnap_proposal, visible_keypoints
 from ..sports.pickleball.line_calling import LineCallConfig, PickleballLineCaller, ServeContext
 from .clocksync import ClockSync
 from .fusion import Decision, LiveJudge
@@ -135,9 +135,10 @@ class CamState:
 
     def fps_in(self) -> float:
         a = self.arrivals
-        if len(a) < 2 or a[-1] == a[0]:
-            return 0.0
-        return (len(a) - 1) / (a[-1] - a[0])
+        # max/min, not last/first: a clock-sync correction can step the converted capture times
+        # backwards (field 2026-11-20: a Redmi showed -1202 fps).
+        span = (max(a) - min(a)) if len(a) >= 2 else 0.0
+        return (len(a) - 1) / span if span > 0 else 0.0
 
 
 class LiveServer:
@@ -764,7 +765,14 @@ class LiveServer:
                 continue
             cam.pairs.add(Pair(e.t, tuple(e.pixel), (r.position.x, r.position.y), ref, (e.position.x, e.position.y)))
             n = len(cam.pairs.pairs)
-            if cam.pairs.ready() and (cam.proposal is None or cam.proposal.get("source") != "bounces") and n % 5 == 0:
+            if (cam.proposal or {}).get("source") != "other_end":
+                kp = cam.cal_points or visible_keypoints(cam.camera, self.court)
+                flip = other_end_proposal(cam.pairs, self.court, kp)
+                if flip:
+                    cam.proposal = flip | {"t": self.now()}
+                    self._log_event({"type": "proposal", "camera": cam.name, "t": self.now(), **cam.proposal})
+                    continue
+            if cam.pairs.ready(min_spread_m=max(2.0 * float(getattr(self.court, "scale", 1.0) or 1.0), 0.3)) and (cam.proposal is None or cam.proposal.get("source") != "bounces") and n % 5 == 0:
                 kp = cam.cal_points or visible_keypoints(cam.camera, self.court)
                 prop = refine_with_bounces(cam.camera, self.court, kp, cam.pairs)
                 if prop:
@@ -910,6 +918,7 @@ def decision_dict(d: Decision, latency_s: float | None) -> dict:
         "n_reports": d.diagnostics.get("n"), "chi2": d.diagnostics.get("chi2"),
         "inflation": d.diagnostics.get("inflation"), "suppressed": d.suppressed,
         "unconfirmed_by": d.diagnostics.get("unconfirmed_by"),
+        "cameras_disagree": d.diagnostics.get("cameras_disagree"),
         "play": d.diagnostics.get("play"), "h_in_mps": d.diagnostics.get("h_in_mps"),
         "vz_in_mps": d.diagnostics.get("vz_in_mps"),
     }

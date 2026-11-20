@@ -71,9 +71,16 @@ On the dashboard, click **Calibrate** on the camera's card:
    points one at a time; the small court diagram shows where each one is.
    **Side A** is the bottom of the diagram; *left/right* are as seen standing
    behind baseline A looking at the net.
+   **Side A is one fixed end of the court, the same for every camera.** Pick it once (e.g. the
+   end nearest the Mac, or put a towel there) and keep it for the whole session. A camera at the
+   B end calibrates its nearest half as **B**, and from there B-left is on *your right* (left/right
+   always as seen from behind A). Do not call each camera's own nearest end "A": the cameras then
+   disagree by a 180° turn and every call they share becomes UNCERTAIN. The dashboard notices this
+   after about 3 bounces both cameras saw and offers **Calibrated from the other end?** → Review
+   (the labels are swapped for you) → Calibrate.
 2. **Fast way:** click the 4 corners of the half nearest this camera (the two baseline
-   corners, then the two kitchen-line corners; roughly is fine; pick the point in the list
-   first if it is not the current one), then **Snap to lines**. Every point is placed on the
+   corners, then the two kitchen-line corners, A or B as above; roughly is fine; pick the point
+   in the list first if it is not the current one), then **Snap to lines**. Every point is placed on the
    painted lines (blue crosses) and the message says how well the lines fit (good: under
    1.5 px). Check the blue points with the magnifier; re-click any that are wrong.
    **By hand:** click each point where the outer edges of the lines meet; skip points you

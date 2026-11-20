@@ -447,6 +447,51 @@ already used a no-reply author address.
 
 ---
 
+## 23. Night session on the mini court, two iPhones (2026-11-20)
+
+**Request.** Analyse a night session under limited light: iPhone 17 and iPhone 16 (the spare
+Redmi saw nothing and was not calibrated). Did the load optimisations work? And how should side A
+be chosen when calibrating several cameras?
+
+**Analysis.**
+* **Side A differed between the cameras.** Each phone was calibrated with its own nearest end as
+  "A". The second phone's bounces were exactly the first phone's turned 180° about the court
+  centre (median disagreement score chi² about 3 400; after swapping its labels, 0.2). The judge
+  correctly refused to call: 33 UNCERTAIN, 1 spoken OUT.
+* **Mini-court size applied twice.** `court.json` stores the scaled sizes plus the factor;
+  `CourtSpec.from_dict` scaled them again. The judge used the right court, but each camera's
+  worker process and every replay used a 0.04-scale court.
+* **Search region not scaled.** The image region where the ball is searched was the court plus a
+  fixed 2.5 m margin and 6 m height. On a correct mini court that takes in lights and people
+  around it, and bounces get lost: 4 bounces seen by both cameras instead of 20. The shared-bounce
+  refinement needed 2 m of spread, which a 1.2 m-wide court cannot give.
+* **Disagreeing cameras could still speak OUT.** On disagreement, fusion inflates the covariance.
+  A precise camera saying OUT by 30 cm and another saying IN by 50 cm still gave p(out) 0.97.
+* **Load: fine.** The iPhone 17 ran a steady 120 fps with no dropped frames, about 12% worker load
+  and 8 ms median latency (the last field test dropped 19 000 frames). Phone-side reduction on the
+  newly installed iPhone 16 sent 49% of frames at 5 kbit/s. The iPhone 17 still runs an older
+  build without it (3.8 Mbit/s) and finished at 5% battery; both phones reached "serious" thermal
+  state.
+* The Redmi 8A in the dark: 10-30 fps, 35 ms detection per frame, almost no candidates.
+
+**Decision.**
+* Side A is one fixed end for every camera; the docs and the calibration dialog now say so. The
+  server also detects a camera labelled from the other end from 3 shared bounces and proposes the
+  swapped labels (in this session it would have fired about 2 minutes into play).
+* Saved court sizes are final (`from_dict` only records the factor). The search margin and height
+  scale with the court (at least 0.5 m and 2 m), and so does the refinement's required spread.
+* When cameras disagree beyond their uncertainties, an OUT is spoken only if each camera on its
+  own report calls OUT.
+* Smaller fixes: frame rate is robust to clock-sync steps (a Redmi showed −1202 fps); the report
+  shows the phone's capture rate rather than the reduced send rate.
+* Replay with the second camera's labels swapped and all fixes: 20 bounces seen by both cameras,
+  UNCERTAIN 33 → 13, 6 OUTs spoken. There is no ground truth for this session.
+
+**Next.** Reinstall the app on the iPhone 17; keep phones charged and cooler. Next session: mark
+contacts so the calls can be scored.
+
+---
+
 ## Current roadmap (as of 2026-11-20)
 
 **Now: validate on real courts**
@@ -457,7 +502,9 @@ already used a no-reply author address.
    * the Samsung changes (detection under 8 ms);
    * the snap calibration and refinement proposals in the dashboard;
    * high balls against the background.
-3. Rebuild and reinstall the iOS app (7-day free signing) and the latest APK.
+3. Rebuild and reinstall the iOS app on the iPhone 17 (older build without phone-side reduction;
+   7-day free signing) and the latest APK.
+4. Calibrate every camera with the same side A; confirm the "other end" check on the dashboard.
 
 **Next: accuracy and trust**
 * Far-half calibration bias under 10 cm (shared-bounce refinement, more cameras).

@@ -270,3 +270,76 @@ Done and pushed (commit `c1fca1f`, all 90 tests pass). You were right: transcrip
 - The export script I pushed earlier had your name written into its own code. Names now live only in a local file excluded from git.
 
 **One decision for you:** the earlier commits are still in the repo's history. They contain the conversation export, the old log text, and the name in the export script. Anyone can browse old commits on a public repo. I can rewrite the history to remove them all and force-push it. That replaces all of the repo's history on GitHub and can't be undone, so I haven't done it without your OK. Copies GitHub caches or that someone has already downloaded can't be fully recalled. Should I go ahead?
+
+### 2026-11-20 17:18 · outcome
+
+I rewrote the repo's history and force-pushed it. None of the earlier commits contain the personal details any more.
+
+**What was removed from every commit**
+- The `docs/conversations/` transcripts.
+- Your name, which was written in the old export script.
+- The personal phrases in early versions of the evolution log, including the line about your wife's phone.
+- A home-folder path in one sample session file.
+- I also ran the commit messages through the same scrubber. None needed changes.
+
+**Checks**
+- A scan of all 12 rewritten commits finds nothing private. No commit touches `docs/conversations` any more.
+- The current files are identical to before, apart from that one sample path.
+- The fast test set passed (79 tests). I skipped the 11 slow tests because only that path string changed.
+- GitHub now shows the new history. There are no forks or pull requests that could still hold the old commits.
+- I added entry 22 to the decision log recording this, and pushed it as `5942d70`.
+
+**What you should know**
+- **GitHub can still open old commits by their exact ID.** For example, the old `66cf4f1` still opens if someone has that ID. Nothing on the repo links to it, and GitHub's routine cleanup will eventually delete it. To remove it now, ask GitHub Support to clear the cached views for 7vikram7/BallTracker. Only you can file that request.
+- **Commit IDs have all changed.** Anyone or any agent with an older clone should clone again rather than pull.
+- **I kept a full backup of the old history** at `.git/pre-rewrite-backup.bundle`, inside the repo's git folder, so it never gets committed. It still contains the private content, so delete it once you're happy with the rewrite.
+
+## 2026-11-20 20:29 · request (session 1661f7c3)
+
+> <ide_selection>The user selected the lines 91 to 91 from ~/Vikram/BallTracker/docs/LIVE_SETUP.md:
+> bt serve --court-scale 0.2
+> 
+> This may or may not be related to the current task.</ide_selection>
+> install the app on the connected iphone16
+
+### 2026-11-20 20:32 · outcome
+
+The build is running in the background; I'll pick it up once it finishes. Meanwhile, turn on Developer Mode on the iPhone 16:
+
+1. Open **Settings › Privacy & Security**, scroll to the bottom and open **Developer Mode**.
+2. Turn it on and let the phone restart.
+3. After it restarts, tap **Turn On** and enter the passcode.
+
+If Developer Mode isn't in that menu, it will appear once the build tries to install. Reopen Settings then.
+
+### 2026-11-20 20:34 · outcome
+
+The app isn't on the iPhone 16 yet. The build stopped right away because Xcode won't build for a phone until Developer Mode is turned on, and it's still off. The phone itself is now paired with this Mac.
+
+To turn it on, on the iPhone 16:
+1. Go to **Settings › Privacy & Security › Developer Mode** (at the bottom of the list).
+2. Turn it on and let the phone restart.
+3. After the restart, tap **Turn On** and enter the passcode.
+
+I'm checking the phone every 5 seconds for the next 30 minutes. As soon as Developer Mode is on, I'll rebuild and install. Keep the phone unlocked and on the cable.
+
+After it installs, the phone may need to trust your developer certificate once. You do that under **Settings › General › VPN & Device Management**. I'll tell you if it does.
+
+### 2026-11-20 20:41 · outcome
+
+The app is installed on the iPhone 16 (BallTracker Cam 0.1.0). iOS won't open it until the phone trusts your developer certificate. That's a one-time step:
+
+1. On the iPhone 16, open **Settings › General › VPN & Device Management**.
+2. Under Developer App, tap your Apple ID.
+3. Tap **Trust** and confirm.
+
+Then open **BallTracker Cam** from the home screen. The first time, it asks for camera and local-network access; allow both.
+
+Three more things to know:
+- **Rebuild every 7 days.** With a free Apple ID, this phone's copy stops opening after 7 days, just like the iPhone 17's.
+- **I had to change the build method.** The usual `npx expo run:ios` command failed because the signing profile only listed the iPhone 17. Building with Xcode directly let it add the iPhone 16 automatically. Future reinstalls on either phone can use `npx expo run:ios --device` again.
+- **The phone's name is in the build log.** The phone is still called "Vishakha's iPhone", and that name appears in the local build output. Nothing from this went into the repo.
+
+## 2026-11-20 21:00 · request (session 1661f7c3)
+
+> Just finished a session with iPhone 16 and iPhone 17. At night, under limited lights, only two cameras used, my spare Redmi, I tried using it but it was completely not able to see anything, hence I did not calibrate it. Also a question about calibration. Always I should start with the closest left corner and the A is the A for that camera, right? Or I should remember how the first camera was calibrated, what side was A for that camera and then according to that calibrate the other camera. Try to analyze the session I just completed and see if there are any learnings and findings. See if our optimizations worked and the server was not overloaded.

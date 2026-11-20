@@ -118,3 +118,40 @@ def test_dashboard_snap_then_calibrate_endpoints(tmp_path):
             assert cal["ok"] and cal["rms_px"] < 1.5 and srv.reference_cam == "c1"
 
     asyncio.run(run())
+
+
+def test_a_camera_labelled_from_the_other_end_is_detected_and_fixed():
+    # Field 2026-11-20: the second phone stood at the B end and its nearest baseline was clicked
+    # as "A". The fit is fine (the court is symmetric), but every bounce lands mirrored through
+    # the centre. A few shared bounces reveal it; the proposal swaps the labels back.
+    from balltracker.geometry.camera import calibrate_from_points
+    from balltracker.geometry.crosscal import from_other_end, other_end_proposal
+
+    court = CourtSpec.pickleball().scaled(0.2)
+    kp = court.keypoints()
+    truth = Camera.look_at(np.array([1.0, 1.6, 1.6]), np.array([0.0, 0.0, 0.0]), (1920, 1080), 70.0, camera_id="b")
+    names = [k for k in visible_keypoints(truth, court)]
+    seen = {k: truth.project(np.array([kp[k]]))[0].tolist() for k in names}
+    clicked = from_other_end(seen)  # what the user did: labels from this camera's own end
+    fit = lambda pts: calibrate_from_points(np.array([kp[k] for k in pts]), np.array([pts[k] for k in pts]),
+                                            (1920, 1080), camera_id="b")
+    wrong = fit(clicked)
+    rng = np.random.default_rng(3)
+    r = court.ball_radius
+
+    def pairs_for(cam):
+        pairs = BouncePairs()
+        for i in range(6):
+            xy = np.array([rng.uniform(-0.6, 0.6), rng.uniform(-1.3, 1.3)])
+            px = truth.project(np.array([[xy[0], xy[1], r]]))[0]
+            pairs.add(Pair(float(i), tuple(px), tuple(xy), "a", tuple(cam.intersect_plane_z(px[None], r)[0][:2])))
+        return pairs
+
+    assert other_end_proposal(BouncePairs(pairs_for(wrong).pairs[:2]), court, clicked) is None  # needs 3
+    prop = other_end_proposal(pairs_for(wrong), court, clicked)
+    assert prop is not None and prop["source"] == "other_end" and prop["after_cm"] < 5, prop
+    fixed = fit(prop["points"])
+    centre = lambda c: -c.R.T @ np.asarray(c.t).ravel()
+    assert np.allclose(centre(wrong)[:2], -centre(truth)[:2], atol=0.05)  # the wrong one sits mirrored
+    assert np.allclose(centre(fixed), centre(truth), atol=0.05)
+    assert other_end_proposal(pairs_for(fixed), court, prop["points"]) is None  # agrees now

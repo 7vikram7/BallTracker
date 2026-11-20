@@ -101,8 +101,11 @@ def build_report(session: Path | str, marks_csv: Path | str | None = None) -> tu
         if e.get("type") == "camera_stats":
             last_stats[e["camera"]] = e
             w = worst.setdefault(e["camera"], {"min_fps_in": None, "max_latency_ms": None})
-            if e.get("fps_in"):
-                w["min_fps_in"] = e["fps_in"] if w["min_fps_in"] is None else min(w["min_fps_in"], e["fps_in"])
+            # The phone's capture rate when it reports one: a phone that skips still frames
+            # (data reduction) sends fewer frames than it captures.
+            fps = (e.get("phone") or {}).get("fps_capture") or e.get("fps_in")
+            if fps and fps > 0 and e.get("connected", True):
+                w["min_fps_in"] = fps if w["min_fps_in"] is None else min(w["min_fps_in"], fps)
             if e.get("latency_ms") is not None:
                 w["max_latency_ms"] = max(w["max_latency_ms"] or 0, e["latency_ms"])
     cams = summ.get("cameras") or list(last_stats.values())
@@ -138,6 +141,8 @@ def build_report(session: Path | str, marks_csv: Path | str | None = None) -> tu
           "| t (s) | call | spoken | p(out) | line | distance | cameras | note |", "|---|---|---|---|---|---|---|---|"]
     for d in decisions:
         note = d.get("suppressed") or (f"unconfirmed by {', '.join(d['unconfirmed_by'])}" if d.get("unconfirmed_by") else "")
+        if d.get("cameras_disagree"):
+            note = (note + "; " if note else "") + f"cameras disagree (chi2 {d.get('chi2', 0):.0f})"
         L.append(f"| {d['t']:.2f} | {d.get('result', '–')} | {'**' + str(d.get('text')) + '**' if d.get('announce') else ''} | "
                  f"{_fmt(d.get('p_out'), 2)} | {d.get('line') or ''} | {_fmt(d.get('distance_cm'), 1, ' cm')} | "
                  f"{len(d.get('cameras') or [])} | {note} |")
