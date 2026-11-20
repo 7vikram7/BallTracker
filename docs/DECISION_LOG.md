@@ -427,6 +427,26 @@ motivation in the repository so other agents can analyse it and suggest improvem
 
 ---
 
+## 22. Remove personal details from the repository's history (2026-11-20)
+
+**Request.** Approved: remove the earlier published transcripts and personal details from the
+history as well, not only from the latest version.
+
+**Analysis.** Deleting a file in a new commit leaves it in every older commit. A scan of all
+12 commits found the transcript folder, owner-specific words in an export script and in early
+versions of the evolution log, and one home-folder path in a sample session. All commits
+already used a no-reply author address.
+
+**Decision.**
+* History rewritten: the transcript folder dropped from every commit; files and commit messages
+  passed through `scripts/hooks/privacy.py`; force-pushed. The latest files are unchanged except
+  that one path.
+* Commit IDs changed. Anyone with an older clone should re-clone, not merge.
+* From now on, scrubbing happens before anything is written (the hook and the export), so a
+  rewrite should not be needed again.
+
+---
+
 ## Current roadmap (as of 2026-11-20)
 
 **Now: validate on real courts**
