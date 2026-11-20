@@ -248,3 +248,25 @@ Everything is pushed and nothing is pending. Another agent can now replay this s
 ## 2026-11-20 15:39 · request (session 1661f7c3)
 
 > Hey, I certainly don't think it's right to push. Entire GBs of video and conversation transcripts that contain email and personal details. But what I wanted you to push was a decision log, okay? The request was this, the analysis was this, the decision was this, this is future roadmap, the next request was this, the decision was this, the analysis was this, this is the future roadmap. This kind of a conversation and decision log without personal details that needs to be on GitHub for anybody to understand the motivation and direction. About test data, I'm not expecting you to push the entire video, but you can certainly push a metadata out of that video that anybody can leverage to run the tests.
+
+### 2026-11-20 16:04 · outcome
+
+Done and pushed (commit `c1fca1f`, all 90 tests pass). You were right: transcripts and raw media don't belong in a public repo. I've swapped them for these:
+
+**Decision log** (`docs/DECISION_LOG.md`)
+- 21 entries, one per request from the first brief to today. Each has the request, the analysis, the decision, and what came next.
+- It ends with the current roadmap: what to validate now, what improves accuracy next, and what comes later.
+- No personal details. `docs/HANDOFF.md` and the README now send readers there first.
+- `docs/conversations/` is deleted from the current version of the repo.
+
+**Test data from the videos** (`data/real/2026-11-17/clip_240fps/`)
+- The 240 fps original (600 MB, the only real footage with chalk-mark ground truth) is now 470 KB of data. For every frame: the timestamp, plus the ball positions found by both the Mac detector and the phone detector. No images.
+- A new test reruns the whole validation from that data: both detectors find all 12 throws, with a 0.6 cm median error against the chalk marks.
+- `scripts/extract_clip_metadata.py` does the same for any future video.
+- The field sessions already in the repo (`data/field/`) follow the same idea: ball positions and events only.
+
+**Personal details in the auto-written evolution log**
+- The hook was copying requests and replies verbatim, including a mention of your wife's phone and your home folder path. Both the hook and the session export now remove personal details before writing, and I cleaned the existing log.
+- The export script I pushed earlier had your name written into its own code. Names now live only in a local file excluded from git.
+
+**One decision for you:** the earlier commits are still in the repo's history. They contain the conversation export, the old log text, and the name in the export script. Anyone can browse old commits on a public repo. I can rewrite the history to remove them all and force-push it. That replaces all of the repo's history on GitHub and can't be undone, so I haven't done it without your OK. Copies GitHub caches or that someone has already downloaded can't be fully recalled. Should I go ahead?
