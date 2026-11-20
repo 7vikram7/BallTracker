@@ -1,0 +1,149 @@
+{
+  "kind": "balltracker.session",
+  "schema": 1,
+  "session": "20261118-171657",
+  "started_at": "2026-11-18T17:16:57+0530",
+  "command": "/Users/<user>/Vikram/BallTracker/.venv/bin/bt serve",
+  "host": {
+    "python": "3.12.13",
+    "platform": "macOS-15.7.7-x86_64-i386-64bit",
+    "machine": "x86_64"
+  },
+  "git": {
+    "commit": "no commits",
+    "branch": null,
+    "changed_files": 14
+  },
+  "versions": {
+    "balltracker": "0.1.0",
+    "bounce": "0.3.0",
+    "fusion": "0.1.0",
+    "mac_detector": "motion_color_baseline 0.1.0",
+    "phone_detector": "edge_color_motion 1.0.0",
+    "protocol": 2
+  },
+  "court": {
+    "name": "pickleball",
+    "width": 6.096,
+    "length": 13.411200000000001,
+    "kitchen_depth": 2.1336,
+    "line_width": 0.0508,
+    "net_height_sideline": 0.9144,
+    "net_height_center": 0.8635999999999999,
+    "net_post_offset": 0.30479999999999996,
+    "ball_radius": 0.0371,
+    "contact_patch_radius": 0.01,
+    "scale": 1.0
+  },
+  "settings": {
+    "record": false,
+    "detector_overrides": {},
+    "hold_s": 0.6,
+    "window_s": 0.08,
+    "corroborate": true
+  },
+  "summary": {
+    "duration_s": 1546.7,
+    "cameras": [
+      {
+        "camera": "cam-chgf",
+        "mode": "edge",
+        "connected": false,
+        "frames_in": 35682,
+        "fps_in": 58.8,
+        "drops": 556,
+        "unsynced": 26,
+        "seq_gaps": 0,
+        "proc_fps": 0.0,
+        "busy": 0.0,
+        "latency_ms": null,
+        "bounces": 0,
+        "clock": {
+          "samples": 120,
+          "offset_s": -1794648100.9789526,
+          "rtt_ms": 4.2447820014785975,
+          "uncertainty_ms": 2.1223910007392988,
+          "drift_ppm": 39.06428097102631
+        },
+        "calib_rms_px": 4.5386842318057425,
+        "phone": {
+          "fps_capture": 60.098522167487694,
+          "fps_processed": 59.11330049261084,
+          "detect_ms": 2.4166666666666665,
+          "phone_drops": 1661,
+          "kbps": 2435.3970443349754,
+          "ts_source": "captureTime",
+          "width": 1280,
+          "height": 720
+        },
+        "device": "Mozilla/5.0 (iPhone; CPU iPhone OS 26_6_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/157.0.8103.37 Mo",
+        "app": {
+          "app_version": "web",
+          "algo": "edge_color_motion",
+          "algo_version": "1.0.0",
+          "platform": "browser"
+        },
+        "width": 1280,
+        "height": 720,
+        "fps_req": 60.0,
+        "ts_source": "captureTime"
+      },
+      {
+        "camera": "cam-s0cv",
+        "mode": "edge",
+        "connected": false,
+        "frames_in": 34912,
+        "fps_in": 30.0,
+        "drops": 0,
+        "unsynced": 10,
+        "seq_gaps": 0,
+        "proc_fps": 0.0,
+        "busy": 0.0,
+        "latency_ms": null,
+        "bounces": 0,
+        "clock": {
+          "samples": 120,
+          "offset_s": -1794648100.980624,
+          "rtt_ms": 5.063463497208431,
+          "uncertainty_ms": 2.5317317486042157,
+          "drift_ppm": 45.330856632869626
+        },
+        "calib_rms_px": 1.9224249995150162,
+        "phone": {
+          "fps_capture": 30,
+          "fps_processed": 30,
+          "detect_ms": 2.8,
+          "phone_drops": 9,
+          "kbps": 2542.72,
+          "ts_source": "captureTime",
+          "width": 1280,
+          "height": 720
+        },
+        "device": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/27.2 Mobile/15E1",
+        "app": {
+          "app_version": "web",
+          "algo": "edge_color_motion",
+          "algo_version": "1.0.0",
+          "platform": "browser"
+        },
+        "width": 1280,
+        "height": 720,
+        "fps_req": 60.0,
+        "ts_source": "captureTime"
+      }
+    ],
+    "reports": 23,
+    "decisions": 21,
+    "calls": {
+      "UNCERTAIN": 8,
+      "IN": 10,
+      "OUT": 3
+    },
+    "announced": 3,
+    "latency_s": {
+      "median": 1.0391385562252253,
+      "max": 2.3905122251792363
+    }
+  },
+  "ended_at": "2026-11-18T17:42:44+0530"
+}

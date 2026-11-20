@@ -1,0 +1,193 @@
+{
+  "kind": "balltracker.session",
+  "schema": 1,
+  "session": "20261119-070916",
+  "started_at": "2026-11-19T07:09:16+0530",
+  "command": "/Users/<user>/Vikram/BallTracker/.venv/bin/bt serve --record",
+  "host": {
+    "python": "3.12.13",
+    "platform": "macOS-26.7.3-x86_64-i386-64bit",
+    "machine": "x86_64"
+  },
+  "git": {
+    "commit": "no commits",
+    "branch": null,
+    "changed_files": 15
+  },
+  "versions": {
+    "balltracker": "0.1.0",
+    "bounce": "0.3.0",
+    "fusion": "0.1.0",
+    "mac_detector": "motion_color_baseline 0.1.0",
+    "phone_detector": "edge_color_motion 1.0.0",
+    "protocol": 2
+  },
+  "court": {
+    "name": "pickleball",
+    "width": 6.096,
+    "length": 13.411200000000001,
+    "kitchen_depth": 2.1336,
+    "line_width": 0.0508,
+    "net_height_sideline": 0.9144,
+    "net_height_center": 0.8635999999999999,
+    "net_post_offset": 0.30479999999999996,
+    "ball_radius": 0.0371,
+    "contact_patch_radius": 0.01,
+    "scale": 1.0
+  },
+  "settings": {
+    "record": true,
+    "detector_overrides": {},
+    "hold_s": 0.6,
+    "window_s": 0.08,
+    "corroborate": true
+  },
+  "summary": {
+    "duration_s": 6016.2,
+    "cameras": [
+      {
+        "camera": "samsung",
+        "mode": "edge",
+        "connected": false,
+        "frames_in": 141719,
+        "fps_in": 25.3,
+        "drops": 0,
+        "unsynced": 9,
+        "seq_gaps": 0,
+        "proc_fps": 0.0,
+        "busy": 0.0,
+        "latency_ms": null,
+        "bounces": 158,
+        "clock": {
+          "samples": 120,
+          "offset_s": -140322.93473446983,
+          "rtt_ms": 8.590968500357121,
+          "uncertainty_ms": 4.295484250178561,
+          "drift_ppm": 23.205138370169667
+        },
+        "calib_rms_px": 9.47556337043324,
+        "phone": {
+          "fps_capture": 18.813987142990502,
+          "fps_processed": 18.813987142990502,
+          "detect_ms": 44.31063485714285,
+          "phone_drops": 0,
+          "thermal": "critical",
+          "battery": 0,
+          "link_dropped": 0,
+          "kbps": 3415
+        },
+        "device": "samsung SM-S948B",
+        "app": {
+          "app_version": "0.1.0",
+          "algo": "edge_color_motion",
+          "algo_version": "1.0.0",
+          "platform": "android"
+        },
+        "width": 1920,
+        "height": 1440,
+        "fps_req": 120.0,
+        "ts_source": "app:sensor"
+      },
+      {
+        "camera": "iphone17",
+        "mode": "edge",
+        "connected": false,
+        "frames_in": 458452,
+        "fps_in": 115.6,
+        "drops": 19079,
+        "unsynced": 54,
+        "seq_gaps": 0,
+        "proc_fps": 0.0,
+        "busy": 0.0,
+        "latency_ms": null,
+        "bounces": 498,
+        "clock": {
+          "samples": 120,
+          "offset_s": 32715.175573702523,
+          "rtt_ms": 15.419561001181137,
+          "uncertainty_ms": 7.709780500590568,
+          "drift_ppm": 48.04531836574864
+        },
+        "calib_rms_px": 9.346633575867765,
+        "phone": {
+          "fps_capture": 119.94905164030463,
+          "fps_processed": 110.95287276728179,
+          "detect_ms": 8.74131237837838,
+          "phone_drops": 9,
+          "thermal": "serious",
+          "battery": 0.4000000059604645,
+          "link_dropped": 0,
+          "kbps": 3755
+        },
+        "device": "Apple iPhone 17",
+        "app": {
+          "app_version": "0.1.0",
+          "algo": "edge_color_motion",
+          "algo_version": "1.0.0",
+          "platform": "ios"
+        },
+        "width": 1920,
+        "height": 1080,
+        "fps_req": 120.0,
+        "ts_source": "app:sensor"
+      },
+      {
+        "camera": "redmi",
+        "mode": "edge",
+        "connected": false,
+        "frames_in": 485,
+        "fps_in": -5.2,
+        "drops": 0,
+        "unsynced": 8,
+        "seq_gaps": 0,
+        "proc_fps": 0.0,
+        "busy": 0.0,
+        "latency_ms": null,
+        "bounces": 0,
+        "clock": {
+          "samples": 120,
+          "offset_s": -12633.684105585002,
+          "rtt_ms": 14.558787999703782,
+          "uncertainty_ms": 7.279393999851891,
+          "drift_ppm": 0.0
+        },
+        "calib_rms_px": null,
+        "phone": {
+          "fps_capture": 12.041898396185202,
+          "fps_processed": 12.041898396185202,
+          "detect_ms": 81.74419853846153,
+          "phone_drops": 0,
+          "thermal": "unknown",
+          "battery": 0.54,
+          "link_dropped": 17,
+          "kbps": 76
+        },
+        "device": "Xiaomi Redmi 8A Dual",
+        "app": {
+          "app_version": "0.1.0",
+          "algo": "edge_color_motion",
+          "algo_version": "1.0.0",
+          "platform": "android"
+        },
+        "width": 1280,
+        "height": 960,
+        "fps_req": 30.0,
+        "ts_source": "app:sensor"
+      }
+    ],
+    "reports": 656,
+    "decisions": 605,
+    "calls": {
+      "UNCERTAIN": 162,
+      "suppressed": 58,
+      "IN": 368,
+      "OUT": 17
+    },
+    "announced": 17,
+    "latency_s": {
+      "median": 1.3647673938812659,
+      "max": 9.316301576870956
+    }
+  },
+  "ended_at": "2026-11-19T08:49:32+0530"
+}

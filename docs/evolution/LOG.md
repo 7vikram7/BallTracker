@@ -171,3 +171,7 @@ Yes, sessions there would help, and `bt serve --court-scale 0.2` is ready. The m
 ## Still to do
 - Rebuild the iPhone app and reinstall it, and install the latest APK on the Android phones.
 - Snap and the refinement proposals work in tests but haven't been tried on a real phone through the dashboard yet.
+
+## 2026-11-20 13:15 · request (session 1661f7c3)
+
+> Have you pushed on the repo all of the logs, conversations logs, test data, motivation, I want the other repository and other agent to be able to truly work on this data, crunch it, test it so that it can give you tangible suggestions for improvement. Before that, I don't remember you answering my question if a few let's say a couple of  weaker 30 FPS weaker Android camera placed on the court will help

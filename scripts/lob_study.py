@@ -14,7 +14,8 @@ Each shot is played two ways: "rally" (the ball bounced on side A 0.35 s before 
 "volley" (no bounce for many seconds before: the lob was hit out of the air).
 After landing the ball is not returned, so it bounces a second time.
 
-Usage: .venv/bin/python scripts/lob_study.py [--out DIR] [--quick]
+Usage: .venv/bin/python scripts/lob_study.py [--out DIR] [--quick] [--rig 2good+2weak] [--no-reducer]
+(--rig: other camera set-ups, see RIGS and docs/CAMERA_RIGS.md)
 Prints a report and writes report.json in the output folder.
 """
 
@@ -49,9 +50,15 @@ class SimCam:
     true: Camera
     fps: float
     calib: Camera | None = None
+    size: tuple[int, int] = (W, H)
+    px_noise: float = 0.4  # detection jitter (px)
+    dropout: float = 0.02  # missed detections
+    t_jitter_s: float = 0.0  # frame timestamp jitter (weak phones: uneven frame pacing)
+    click_px: float = 1.5  # calibration click noise
 
 
 def _fits(cam: Camera, court: CourtSpec, margin: float = 0.03) -> bool:
+    W, H = cam.image_size
     hw, hl = court.half_w, court.half_l
     pts = np.array([[x, y, 0] for x in (-hw - 0.3, hw + 0.3) for y in (-hl - 0.3, hl + 0.3)], float)
     if np.any(cam.depth(pts) <= 0):
@@ -61,7 +68,8 @@ def _fits(cam: Camera, court: CourtSpec, margin: float = 0.03) -> bool:
                        & (uv[:, 1] > margin * H) & (uv[:, 1] < (1 - margin) * H)))
 
 
-def corner_camera(court: CourtSpec, name: str, sx: int, sy: int, fps: float, height: float = 2.4) -> SimCam:
+def corner_camera(court: CourtSpec, name: str, sx: int, sy: int, fps: float, height: float = 2.4,
+                  size: tuple[int, int] = (W, H), **quality) -> SimCam:
     """Tripod 1.5 m outside the sideline, 3 m behind the baseline, aimed so the whole court
     (+30 cm) is in frame with the main lens if possible, else the 0.5x lens."""
     hw, hl = court.half_w, court.half_l
@@ -70,23 +78,24 @@ def corner_camera(court: CourtSpec, name: str, sx: int, sy: int, fps: float, hei
         best = None
         for ty in np.linspace(-hl, hl, 41):
             for tx in np.linspace(-hw, hw, 9):
-                cam = Camera.look_at(pos, np.array([tx, ty, 0.0]), (W, H), fov, camera_id=name)
+                cam = Camera.look_at(pos, np.array([tx, ty, 0.0]), size, fov, camera_id=name)
                 if _fits(cam, court):
                     # prefer the aim that puts the court highest in the frame (more sky -> ball visible longer)
                     top = float(cam.project(np.array([[0, -sy * hl, 0.0]]))[0, 1])
                     if best is None or top > best[0]:
                         best = (top, cam)
         if best:
-            return SimCam(name, best[1], fps)
+            return SimCam(name, best[1], fps, size=size, **quality)
     raise RuntimeError(f"court does not fit camera {name}")
 
 
-def calibrate(sc: SimCam, court: CourtSpec, rng: np.random.Generator, click_px: float = 1.5) -> Camera:
+def calibrate(sc: SimCam, court: CourtSpec, rng: np.random.Generator) -> Camera:
+    W, H = sc.size
     kp = {k: v for k, v in court.keypoints().items() if k not in NET_TOP_POINTS}
     obj = np.array(list(kp.values()), float)
     uv = sc.true.project(obj)
     ok = (sc.true.depth(obj) > 0) & (uv[:, 0] > 0) & (uv[:, 0] < W) & (uv[:, 1] > 0) & (uv[:, 1] < H)
-    clicks = uv[ok] + rng.normal(0, click_px, (int(ok.sum()), 2))
+    clicks = uv[ok] + rng.normal(0, sc.click_px, (int(ok.sum()), 2))
     return calibrate_from_points(obj[ok], clicks, (W, H), hfov_guess_deg=65.0, camera_id=sc.name)
 
 
@@ -173,8 +182,7 @@ def _sim(shot: Shot, r: float, phys: BallPhysics):
 
 
 # ------------------------------------------------------------------ detections
-def write_session(folder: Path, court: CourtSpec, cams: list[SimCam], segs, rng: np.random.Generator,
-                  px_noise: float = 0.4, dropout: float = 0.02) -> dict:
+def write_session(folder: Path, court: CourtSpec, cams: list[SimCam], segs, rng: np.random.Generator) -> dict:
     folder.mkdir(parents=True, exist_ok=True)
     (folder / "court.json").write_text(json.dumps(court.to_dict()))
     (folder / "calibration").mkdir(exist_ok=True)
@@ -185,7 +193,9 @@ def write_session(folder: Path, court: CourtSpec, cams: list[SimCam], segs, rng:
         sc.calib.save(folder / "calibration" / f"{sc.name}.json")
         d = folder / sc.name
         d.mkdir(exist_ok=True)
+        W, H = sc.size
         frame_t = np.arange(0.0, t_end, 1 / sc.fps) + rng.uniform(0, 1 / sc.fps)
+        stamp_t = frame_t + (rng.normal(0, sc.t_jitter_s, len(frame_t)) if sc.t_jitter_s else 0.0)
         seen = np.zeros(len(frame_t), bool)
         with open(d / "dets.jsonl", "w") as f:
             seg_i = 0
@@ -194,19 +204,20 @@ def write_session(folder: Path, court: CourtSpec, cams: list[SimCam], segs, rng:
                 while seg_i < len(segs) - 1 and tf > segs[seg_i][0][-1]:
                     seg_i += 1
                 ts, pos = segs[seg_i]
-                if ts[0] <= tf <= ts[-1] and rng.random() > dropout:
+                if ts[0] <= tf <= ts[-1] and rng.random() > sc.dropout:
                     j = int(np.searchsorted(ts, tf))
                     j = min(max(j, 1), len(ts) - 1)
                     a = (tf - ts[j - 1]) / (ts[j] - ts[j - 1])
                     X = pos[j - 1] * (1 - a) + pos[j] * a
                     dep = float(sc.true.depth(X[None])[0])
                     if dep > 0.3:
-                        u, v = sc.true.project(X[None])[0] + rng.normal(0, px_noise, 2)
+                        u, v = sc.true.project(X[None])[0] + rng.normal(0, sc.px_noise, 2)
                         rad = float(sc.true.K[0, 0] * court.ball_radius / dep)
                         if 0 <= u < W and 0 <= v < H and rad >= 1.0:
                             c.append([round(u, 3), round(v, 3), round(rad, 3), 0.9])
                             seen[k] = True
-                f.write(json.dumps({"seq": k, "tp": round(tf, 6), "ts": round(tf, 6), "w": W, "h": H, "c": c}) + "\n")
+                ts_k = round(float(stamp_t[k]), 6)
+                f.write(json.dumps({"seq": k, "tp": ts_k, "ts": ts_k, "w": W, "h": H, "c": c}) + "\n")
         vis[sc.name] = (frame_t, seen)
     return vis
 
@@ -304,6 +315,8 @@ def analyse(court, scs, truth, res, rejected, vis, cams):
             "suppressed": m.get("suppressed") if matched else None,
             "play": m.get("play") if matched else None,
             "h_in_est": m.get("h_in_mps") if matched else None,
+            "unconfirmed_by": m.get("unconfirmed_by") if matched else None,
+            "inflation": m.get("inflation") if matched else None,
             "rejections": [(r["camera"], r["rejected"], round(r["rms_in_px"] or 0, 1), round(r["turn_deg"] or 0))
                            for r in rej],
         })
@@ -340,10 +353,40 @@ def summarise(rows, extra, label: str) -> list[str]:
     L.append(f"later (3rd+) bounces detected: {len(later)}, announced {sum(r['announce'] for r in later)}")
     feed = [r for r in rows if r["kind"] == "feed"]
     L.append(f"feed bounces (side A): {len(feed)}, detected {sum(r['detected'] for r in feed)}")
+    outs = [r for r in first if r["truth"] == "OUT" and r["detected"]]
+    vetoed = [r for r in outs if r.get("unconfirmed_by")]
+    L.append(f"OUT first bounces silenced by the 'another camera saw nothing' veto: {len(vetoed)} "
+             f"(by {dict(Counter(c for r in vetoed for c in r['unconfirmed_by']))})")
+    L.append("cameras reporting each first bounce: " + str(dict(Counter(c for r in first for c in r["cameras"]))))
     rej = Counter(x[1] for r in rows for x in r["rejections"])
     L.append(f"physics rejections at true bounces: {dict(rej)}")
     L.append(f"extra (false) decisions: {len(extra)}; announced: {sum(bool(d.get('announce')) for d in extra)}")
     return L
+
+
+# Weak Android phones (e.g. a budget phone in a browser): 30 fps, 1280x720, blurrier ball (larger
+# jitter), more missed frames, uneven frame pacing, coarser clicks. "ok" = a decent budget phone in
+# good light; "poor" = an old phone / dim light. These are assumptions, not measurements.
+WEAK = {"ok": dict(size=(1280, 720), px_noise=1.0, dropout=0.08, t_jitter_s=0.003, click_px=2.0),
+        "poor": dict(size=(1280, 720), px_noise=2.5, dropout=0.20, t_jitter_s=0.006, click_px=2.5)}
+
+
+def _two_good(court):
+    # The current rig: iPhone (120 fps) and Samsung (60 fps) at opposite ends, diagonal corners.
+    return [corner_camera(court, "B-left-120", -1, 1, 120), corner_camera(court, "A-right-60", 1, -1, 60)]
+
+
+RIGS = {
+    "4corner": lambda c: [corner_camera(c, "B-left-120", -1, 1, 120), corner_camera(c, "B-right-60", 1, 1, 60),
+                          corner_camera(c, "A-left-120", -1, -1, 120), corner_camera(c, "A-right-60", 1, -1, 60)],
+    "2good": _two_good,
+    "2good+2weak": lambda c: _two_good(c) + [corner_camera(c, "B-right-30w", 1, 1, 30, **WEAK["ok"]),
+                                             corner_camera(c, "A-left-30w", -1, -1, 30, **WEAK["ok"])],
+    "2good+2poor": lambda c: _two_good(c) + [corner_camera(c, "B-right-30p", 1, 1, 30, **WEAK["poor"]),
+                                             corner_camera(c, "A-left-30p", -1, -1, 30, **WEAK["poor"])],
+    "1good+2weak": lambda c: _two_good(c)[:1] + [corner_camera(c, "B-right-30w", 1, 1, 30, **WEAK["ok"]),
+                                                 corner_camera(c, "A-left-30w", -1, -1, 30, **WEAK["ok"])],
+}
 
 
 def main() -> None:
@@ -351,15 +394,16 @@ def main() -> None:
     ap.add_argument("--out", default="data/experiments/lob_study")
     ap.add_argument("--quick", action="store_true", help="fewer scenarios")
     ap.add_argument("--seed", type=int, default=3)
+    ap.add_argument("--rig", default="4corner", choices=sorted(RIGS), help="camera set-up (see RIGS)")
+    ap.add_argument("--no-reducer", action="store_true", help="skip the phone-side reducer replay")
     a = ap.parse_args()
     out = ROOT / a.out
     rng = np.random.default_rng(a.seed)
     court = CourtSpec.pickleball()
-    cams = [corner_camera(court, "B-left-120", -1, 1, 120), corner_camera(court, "B-right-60", 1, 1, 60),
-            corner_camera(court, "A-left-120", -1, -1, 120), corner_camera(court, "A-right-60", 1, -1, 60)]
+    cams = RIGS[a.rig](court)
     for sc in cams:
         sc.calib = calibrate(sc, court, rng)
-        print(f"{sc.name}: hfov {np.degrees(2 * np.arctan(W / 2 / sc.true.K[0, 0])):.0f} deg, "
+        print(f"{sc.name}: hfov {np.degrees(2 * np.arctan(sc.size[0] / 2 / sc.true.K[0, 0])):.0f} deg, "
               f"calibration rms {sc.calib.reprojection_rms_px:.2f} px", flush=True)
     scs = scenarios(court, a.quick)
     segs, truth = build(court, scs, rng)
@@ -368,7 +412,8 @@ def main() -> None:
 
     report = {}
     lines = []
-    for label, folder in (("all frames", out / "session"), ("phone-side reducer", out / "session_reduced")):
+    runs = [("all frames", out / "session")] + ([] if a.no_reducer else [("phone-side reducer", out / "session_reduced")])
+    for label, folder in runs:
         if label == "phone-side reducer":
             stats = reduce_session(out / "session", folder, cams)
             report["reducer_stats"] = stats

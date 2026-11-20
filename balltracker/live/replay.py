@@ -19,6 +19,7 @@ unchanged code reproduces the live decisions exactly; tests rely on that.
 from __future__ import annotations
 
 import csv
+import gzip
 import json
 from pathlib import Path
 
@@ -58,7 +59,7 @@ def load_session(session: Path | str) -> dict:
     last_calib = {e["camera"]: e["camera_model"] for e in events if e.get("type") == "calibrated" and e.get("camera_model")}
     cams = {}
     for d in sorted(p for p in session.iterdir() if p.is_dir() and p.name not in ("calibration", "replays")):
-        kind = "edge" if (d / "dets.jsonl").exists() else ("browser" if (d / "index.csv").exists() else None)
+        kind = "edge" if _dets_path(d) else ("browser" if (d / "index.csv").exists() else None)
         if kind is None:
             continue
         cam = None
@@ -74,8 +75,18 @@ def load_session(session: Path | str) -> dict:
     return {"dir": session, "court": court, "events": events, "manifest": manifest, "cameras": cams, "contexts": contexts}
 
 
+def _dets_path(folder: Path) -> Path | None:
+    """``dets.jsonl``, or ``dets.jsonl.gz`` (how large sessions are stored in git)."""
+    for name in ("dets.jsonl", "dets.jsonl.gz"):
+        if (folder / name).exists():
+            return folder / name
+    return None
+
+
 def _iter_edge(folder: Path):
-    for line in (folder / "dets.jsonl").read_text().splitlines():
+    path = _dets_path(folder)
+    text = gzip.decompress(path.read_bytes()).decode() if path.suffix == ".gz" else path.read_text()
+    for line in text.splitlines():
         try:
             r = json.loads(line)
         except ValueError:

@@ -27,3 +27,23 @@ def test_field_test_2_sample_replays_with_play_state(tmp_path):
         if d.get("announce"):
             assert d["play"] in ("rally", "start of play")  # real reports always carry flight data
             assert len(d["cameras"]) >= 2 or d.get("single_camera_std_cm") is None
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(not SAMPLE.exists(), reason="sample data missing")
+def test_gzipped_detections_replay_identically(tmp_path):
+    """data/field stores large dets.jsonl as dets.jsonl.gz; replay must give the same decisions."""
+    import gzip
+    import shutil
+
+    from balltracker.live.replay import replay
+
+    plain, packed = tmp_path / "plain", tmp_path / "packed"
+    shutil.copytree(SAMPLE, plain)
+    shutil.copytree(SAMPLE, packed)
+    for f in packed.glob("*/dets.jsonl"):
+        f.with_name("dets.jsonl.gz").write_bytes(gzip.compress(f.read_bytes()))
+        f.unlink()
+    key = lambda r: [(d["t"], d.get("result"), d.get("suppressed")) for d in r["decisions"]]  # noqa: E731
+    a, b = replay(plain), replay(packed)
+    assert key(a) == key(b) and len(a["decisions"]) >= 5

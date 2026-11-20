@@ -30,7 +30,12 @@ Where to read: [docs/DECISIONS.md](docs/DECISIONS.md) (what was decided and why)
 [docs/evolution/LOG.md](docs/evolution/LOG.md) (request/outcome history, written by a Claude Code
 hook), [docs/FIELD_TEST_2_RESULTS.md](docs/FIELD_TEST_2_RESULTS.md) (latest field results),
 [docs/LOB_STUDY.md](docs/LOB_STUDY.md) (lobs through every stage, on mock data),
-[docs/MINI_COURT.md](docs/MINI_COURT.md) (what mini-court tests can and cannot show).
+[docs/MINI_COURT.md](docs/MINI_COURT.md) (what mini-court tests can and cannot show),
+[docs/CAMERA_RIGS.md](docs/CAMERA_RIGS.md) (do weak 30 fps phones help?).
+
+**Working on this from elsewhere (people or agents):** start with [docs/HANDOFF.md](docs/HANDOFF.md):
+goals, the real field data in [data/field/](data/field/) (replayable), the conversation history in
+[docs/conversations/](docs/conversations/README.md), open problems and how to propose changes.
 
 A passing full `pytest` run is committed and pushed automatically at the end of each Claude Code
 response (`scripts/hooks/autocommit.py`; off with `BT_AUTOCOMMIT=0`).
