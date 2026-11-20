@@ -41,6 +41,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from ..bounce import information, psd_inverse
 from ..events import BounceEvent
 
 ALGO = "play_state"
@@ -106,12 +107,11 @@ def flight(sources: list[BounceEvent]) -> dict | None:
         for k in ("v_in", "v_out"):
             info, vec = np.zeros((3, 3)), np.zeros(3)
             for ph in with_cov:
-                C = np.asarray(ph[k + "_cov"], float)
-                C = 0.5 * (C + C.T) + np.eye(3) * 1e-6
-                Ci = np.linalg.inv(C)
+                # A broken (non-positive) variance must not become a negative or infinite weight.
+                Ci = information(np.asarray(ph[k + "_cov"], float))
                 info += Ci
                 vec += Ci @ np.asarray(ph[k], float)
-            cov = np.linalg.inv(info)
+            cov = psd_inverse(info)
             out[k] = cov @ vec
             out[k + "_cov"] = cov
         return out

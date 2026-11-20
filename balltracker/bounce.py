@@ -216,10 +216,7 @@ def ballistic_check(camera: Camera, t: np.ndarray, uv: np.ndarray, tb: float, P:
         # so the plausibility checks and the play state only trust what was measured.
         # The pixel noise floor covers unmodelled drag / spin / calibration error.
         sig = max(rms, VEL_SIGMA_FLOOR_PX)
-        try:
-            cov = sig * sig * np.linalg.inv(A.T @ A)
-        except np.linalg.LinAlgError:
-            cov = np.eye(3) * 1e4
+        cov = sig * sig * psd_inverse(A.T @ A)
         out[name] = (vel, rms, cov)
     vi, ri, ci = out["in"]
     vo, ro, co = out["out"]
@@ -237,6 +234,34 @@ def ballistic_check(camera: Camera, t: np.ndarray, uv: np.ndarray, tb: float, P:
 # Calibrated on the lob study (scripts/lob_study.py): with a 1 px floor the real velocity errors were
 # 2-5x the predicted ones (contact-time error, drag, calibration are not in the model).
 VEL_SIGMA_FLOOR_PX = 4.0
+
+
+def psd_inverse(M: np.ndarray, rel_floor: float = 1e-13, max_var: float = 1e4) -> np.ndarray:
+    """Inverse of a symmetric positive semi-definite matrix that stays positive definite.
+
+    A plain inverse of a nearly singular normal matrix (a direction one camera barely sees) can
+    come out with negative variances from rounding; fused by inverse-covariance weighting, that
+    camera would then get negative weight. Eigenvalues are floored, so a direction that was not
+    measured gets a huge but positive variance (at most ``max_var``)."""
+    M = 0.5 * (np.asarray(M, float) + np.asarray(M, float).T)
+    if not np.all(np.isfinite(M)):
+        return np.eye(len(M)) * max_var
+    w, V = np.linalg.eigh(M)
+    w = np.maximum(w, max(float(w.max()) * rel_floor, 1.0 / max_var))
+    return (V / w) @ V.T
+
+
+def information(C: np.ndarray, rel_floor: float = 1e-12) -> np.ndarray:
+    """Inverse of a covariance for inverse-covariance fusion, never with negative weight.
+
+    Directions with a non-positive (broken) variance get zero information: the camera then
+    contributes nothing along them, instead of an infinite or negative weight."""
+    C = 0.5 * (np.asarray(C, float) + np.asarray(C, float).T)
+    if not np.all(np.isfinite(C)):
+        return np.zeros_like(C)
+    w, V = np.linalg.eigh(C)
+    keep = w > max(float(w.max()) * rel_floor, 1e-12)
+    return (V[:, keep] / w[keep]) @ V[:, keep].T
 
 
 def _sd_along(cov: np.ndarray, v: np.ndarray) -> float:

@@ -53,6 +53,12 @@ Formats: `balltracker/live/session_log.py` (session folders), `balltracker/live/
 `{"seq", "tp" (phone clock, s), "ts" (session clock, s), "w", "h", "c": [[u, v, radius_px, score], ...]}` (all ball
 candidates the phone found).
 
+**Live decisions vs replays.** During field test 2 the Mac was overloaded and dropped about 19 000
+frames (fixed since; FIELD_TEST_2_RESULTS.md). A replay processes every frame, so it makes about
+1 060 decisions where the live run made 605. Compare a change by replaying before and after, not
+against the live decisions. The full session takes about 30 min of CPU on the 2020 Intel Mac;
+`scripts/slice_session.py` cuts shorter pieces.
+
 **Not in the repo, and why:**
 
 * Camera images and video, including field-test frames (1.7 GB) and the 240 fps Slo-mo clip

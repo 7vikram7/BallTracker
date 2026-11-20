@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import gzip
 import json
 import shutil
 from pathlib import Path
@@ -43,10 +44,13 @@ def main() -> None:
     for cam in sorted(p for p in src.iterdir() if p.is_dir() and p.name not in ("calibration", "replays")):
         dets = cam / "dets.jsonl"
         if not dets.exists():
-            continue
+            dets = cam / "dets.jsonl.gz"  # data/field stores large files compressed
+            if not dets.exists():
+                continue
         (out / cam.name).mkdir(exist_ok=True)
         n = 0
-        with open(dets) as f, open(out / cam.name / "dets.jsonl", "w") as o:
+        opener = gzip.open if dets.suffix == ".gz" else open
+        with opener(dets, "rt") as f, open(out / cam.name / "dets.jsonl", "w") as o:
             for line in f:
                 ts = json.loads(line)["ts"]
                 if ts > a.t1:
