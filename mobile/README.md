@@ -56,6 +56,13 @@ Requirements found during setup: **Node ≥ 22.13** (Expo 58; Homebrew's Node 26
 
 ## Install on an iPhone (free Apple ID)
 
+**Quickest:** plug the iPhone into the Mac, unlock it, and run `mobile/scripts/install_ios.sh`.
+It asks for Trust and Developer Mode when needed, adds the phone to the signing profile (the Mac
+needs internet for that), builds, installs and opens the app: about 1 minute for a known phone,
+3-4 minutes for a new one. A free Apple ID can sign only a few devices.
+
+By hand:
+
 1. iPhone: Settings › Privacy & Security › **Developer Mode** on (it restarts). Connect it by cable.
 2. `npx expo run:ios --device` and pick the iPhone. The first time, if signing fails:
    open `ios/BallTrackerCam.xcworkspace` in Xcode › target › Signing & Capabilities ›
