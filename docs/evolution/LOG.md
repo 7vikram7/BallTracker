@@ -175,3 +175,48 @@ Yes, sessions there would help, and `bt serve --court-scale 0.2` is ready. The m
 ## 2026-11-20 13:15 · request (session 1661f7c3)
 
 > Have you pushed on the repo all of the logs, conversations logs, test data, motivation, I want the other repository and other agent to be able to truly work on this data, crunch it, test it so that it can give you tangible suggestions for improvement. Before that, I don't remember you answering my question if a few let's say a couple of  weaker 30 FPS weaker Android camera placed on the court will help
+
+### 2026-11-20 13:43 · outcome
+
+Before your session ended, nothing beyond code, docs and a 60-second data sample had been pushed. The rest is now on GitHub (commit `66cf4f1`, all 84 tests pass), except camera images and video, which I held back.
+
+## Your earlier question: do weak 30 fps Android phones help?
+
+I hadn't answered it, sorry. **Yes, as extra cameras alongside the iPhone and Samsung. No, as a replacement for one of them.** I ran the same 54 drive-and-lob shots in the simulator with different camera setups. The weak phones were modelled as 1280×720 at 30 fps, with blur, more missed frames and uneven timing; those values are guesses, not measurements.
+
+| Setup | OUTs announced (of 27) | Of those, only 3 cm out (of 8) | Wrong OUTs |
+|---|---|---|---|
+| iPhone + Samsung (today) | 20 | 1 | 0 |
+| **+ 2 decent weak phones** | **24** | **5** | 0 |
+| + 2 poor weak phones | 22 | 3 | 0 |
+| iPhone + 2 weak phones (no Samsung) | 15 | 0 | 0 |
+
+- **Where they help:** the two good phones already call every clear OUT. What extra cameras add is confidence on very close bounces, which the system otherwise keeps silent about.
+- **Where they don't:** a weak phone catches only 30–40 of 54 bounces, because 30 fps gives too few points around the contact.
+  - If one of them replaces the Samsung, calls are lost.
+  - Worse, when a camera can see the spot but misses the bounce, it can silence a correct OUT from the good phone. That happened 3 times in the simulation.
+  - I've written this up as a suggested fix but haven't implemented it.
+- **They must really reach 30 fps.** In field test 2 the Redmi managed only 12 fps. Use good light and put them in the two empty corners.
+
+Details are in `docs/CAMERA_RIGS.md`.
+
+## What's on GitHub now
+- **Field data:** every real session that recorded anything is in `data/field/`. It includes every frame's ball detections, all events and calibrations, and the 605 live decisions from field test 2. `bt replay data/field/20261119-070916` re-runs the whole system on it.
+- **Conversations:** the full history of your requests and my replies is in `docs/conversations/`. Tool output and my internal reasoning are left out.
+  - Personal details are replaced: your email, the person's name in a camera name, and the iPhone's hardware IDs.
+  - Still in there, in your own words: the second iPhone, home Wi-Fi addresses, and the Apple team ID, which was already public in the app config.
+- **Motivation and a guide for other agents:**
+  - `docs/PROJECT_BRIEF.md` is your original brief; it had never been committed.
+  - `docs/HANDOFF.md` is where another agent should start: goals, rules (zero wrong OUTs, no GPL, privacy), what each dataset is, how to run things, 6 open problems with measurable targets, and how to propose a change with before/after numbers.
+- **Simulation results:** per-bounce reports from the lob study and the camera-setup study.
+- **Refreshing it:** run `scripts/export_for_repo.py` after future sessions. It stops if it finds an email address, token or personal name.
+
+## What I didn't push, and need your decision on
+- **Camera images (1.7 GB) and the 240 fps Slo-mo video (900 MB).** People are visible in them and the repo is public.
+  - The images are needed for detector work and fully automatic calibration.
+  - A private repo or a private download link would work if you want to share them.
+- **The raw conversation transcripts:** they contain your email and other personal details. The cleaned copy is the one on GitHub.
+
+I checked the transcripts and the git history against your actual GitHub token: it appears in neither.
+
+A full replay of field test 2 from the uploaded files is still running in the background. A test already confirms that the compressed files replay with identical results.
