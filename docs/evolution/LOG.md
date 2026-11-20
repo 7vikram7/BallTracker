@@ -220,3 +220,15 @@ Details are in `docs/CAMERA_RIGS.md`.
 I checked the transcripts and the git history against your actual GitHub token: it appears in neither.
 
 A full replay of field test 2 from the uploaded files is still running in the background. A test already confirms that the compressed files replay with identical results.
+
+### 2026-11-20 14:12 · outcome
+
+I found and fixed a bug while checking the uploaded data, and pushed the fix (commit `56b45c7`, all 87 tests pass, golden tests unchanged).
+
+**What was wrong:** I replayed the whole hour of field test 2 from the files now on GitHub, and some of the bounce maths produced negative uncertainties. When the cameras' ball-speed estimates were combined, an affected camera got *negative* weight, which could push the combined speed the wrong way. That speed decides whether a bounce counts as "in play" or a "dead ball". The 60-second sample and the simulations never hit this; only the full real session did. A broken value now gives that camera zero weight instead, and I added tests for it.
+
+**Also fixed:** `scripts/slice_session.py` can now cut short pieces out of the compressed sessions, which is useful because a full replay takes about 30 minutes on your Mac.
+
+**Note for anyone using field test 2:** a replay makes about 1,060 decisions, while the live run made 605. That's because the Mac dropped about 19,000 frames during the session (fixed since), and a replay processes every frame. This is now explained in `docs/HANDOFF.md`, so another agent compares replays before and after a change, not replays against the live run.
+
+A second full replay with the fix is still running. When it finishes I'll tell you how many of the field-test decisions it changed.
