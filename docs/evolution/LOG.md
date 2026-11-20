@@ -244,3 +244,7 @@ The second replay of field test 2 finished, and the fix doesn't change any calls
   - 3 bounces dropped out and 2 new ones appeared.
 
 Everything is pushed and nothing is pending. Another agent can now replay this session itself and compare before and after its own changes.
+
+## 2026-11-20 15:39 · request (session 1661f7c3)
+
+> Hey, I certainly don't think it's right to push. Entire GBs of video and conversation transcripts that contain email and personal details. But what I wanted you to push was a decision log, okay? The request was this, the analysis was this, the decision was this, this is future roadmap, the next request was this, the decision was this, the analysis was this, this is the future roadmap. This kind of a conversation and decision log without personal details that needs to be on GitHub for anybody to understand the motivation and direction. About test data, I'm not expecting you to push the entire video, but you can certainly push a metadata out of that video that anybody can leverage to run the tests.

@@ -26,7 +26,8 @@ Optional for some tests: Node ≥ 22 (the app's JavaScript core: `node --test mo
 Google Chrome (the browser end-to-end test; skipped without it). Real field data for the tests ships
 in [data/samples/](data/samples/README.md); full sessions are not in git.
 
-Where to read: [docs/DECISIONS.md](docs/DECISIONS.md) (what was decided and why),
+Where to read: [docs/DECISION_LOG.md](docs/DECISION_LOG.md) (every request, analysis, decision and the roadmap, in order),
+[docs/DECISIONS.md](docs/DECISIONS.md) (the decisions as a table),
 [docs/evolution/LOG.md](docs/evolution/LOG.md) (request/outcome history, written by a Claude Code
 hook), [docs/FIELD_TEST_2_RESULTS.md](docs/FIELD_TEST_2_RESULTS.md) (latest field results),
 [docs/LOB_STUDY.md](docs/LOB_STUDY.md) (lobs through every stage, on mock data),
@@ -34,8 +35,9 @@ hook), [docs/FIELD_TEST_2_RESULTS.md](docs/FIELD_TEST_2_RESULTS.md) (latest fiel
 [docs/CAMERA_RIGS.md](docs/CAMERA_RIGS.md) (do weak 30 fps phones help?).
 
 **Working on this from elsewhere (people or agents):** start with [docs/HANDOFF.md](docs/HANDOFF.md):
-goals, the real field data in [data/field/](data/field/) (replayable), the conversation history in
-[docs/conversations/](docs/conversations/README.md), open problems and how to propose changes.
+goals, the real field data in [data/field/](data/field/) (replayable), the decision log
+[docs/DECISION_LOG.md](docs/DECISION_LOG.md) (request → analysis → decision → roadmap), open problems and how to
+propose changes.
 
 A passing full `pytest` run is committed and pushed automatically at the end of each Claude Code
 response (`scripts/hooks/autocommit.py`; off with `BT_AUTOCOMMIT=0`).

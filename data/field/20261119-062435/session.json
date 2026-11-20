@@ -3,7 +3,7 @@
   "schema": 1,
   "session": "20261119-062435",
   "started_at": "2026-11-19T06:24:35+0530",
-  "command": "/Users/<user>/Vikram/BallTracker/.venv/bin/bt serve",
+  "command": "~/Vikram/BallTracker/.venv/bin/bt serve",
   "host": {
     "python": "3.12.13",
     "platform": "macOS-26.7.3-x86_64-i386-64bit",

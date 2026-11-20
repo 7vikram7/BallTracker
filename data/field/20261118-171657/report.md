@@ -2,7 +2,7 @@
 
 * **When:** 2026-11-18T17:16:57+0530 → 2026-11-18T17:42:44+0530 (1547 s)
 * **Code:** commit `no commits` + 14 uncommitted files; bounce 0.3.0, fusion 0.1.0, phone detector edge_color_motion 1.0.0, protocol 2
-* **Command:** `/Users/<user>/Vikram/BallTracker/.venv/bin/bt serve`
+* **Command:** `~/Vikram/BallTracker/.venv/bin/bt serve`
 * **Court:** pickleball, 6.10 × 13.41 m
 * **Settings:** {"record": false, "detector_overrides": {}, "hold_s": 0.6, "window_s": 0.08, "corroborate": true}
 

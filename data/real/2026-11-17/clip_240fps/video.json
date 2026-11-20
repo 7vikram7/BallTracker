@@ -1,0 +1,27 @@
+{
+ "file": "IMG_5017.MOV",
+ "codec": "hevc",
+ "coded_size": [
+  1920,
+  1080
+ ],
+ "display_rotation_deg": 270,
+ "upright_size": [
+  1080,
+  1920
+ ],
+ "frames": 11449,
+ "duration_s": 55.9033,
+ "container_avg_fps": 204.7846889952153,
+ "measured_avg_fps": 204.78,
+ "frame_interval_ms": {
+  "median": 4.167,
+  "p5": 4.167,
+  "p95": 8.333,
+  "max": 12.5
+ },
+ "detectors": {
+  "mac": "motion_color_baseline",
+  "phone": "edge_color_motion(native)"
+ }
+}
