@@ -343,3 +343,44 @@ Three more things to know:
 ## 2026-11-20 21:00 · request (session 1661f7c3)
 
 > Just finished a session with iPhone 16 and iPhone 17. At night, under limited lights, only two cameras used, my spare Redmi, I tried using it but it was completely not able to see anything, hence I did not calibrate it. Also a question about calibration. Always I should start with the closest left corner and the A is the A for that camera, right? Or I should remember how the first camera was calibrated, what side was A for that camera and then according to that calibrate the other camera. Try to analyze the session I just completed and see if there are any learnings and findings. See if our optimizations worked and the server was not overloaded.
+
+### 2026-11-20 22:13 · outcome
+
+**Calibration:** side A is one fixed end of the court, the same for every camera. Don't make A each camera's own nearest end.
+
+- Pick A once per session, for example the end nearest the Mac, or mark it with a towel.
+- A camera at the other end clicks its nearest corners as **B** points.
+- Left and right are always as seen standing behind A. So from the B end, "B-left" is on your right.
+
+That's what went wrong tonight. Each phone was calibrated with its own end as A, so the iPhone 16 put every bounce at the spot mirrored through the court centre. The two cameras disagreed by up to 2.5 m, and the judge rightly refused to call: 33 UNCERTAIN, 1 OUT. After swapping the iPhone 16's labels in a replay, the two phones agree within about 2 cm on every shared bounce.
+
+## Did the optimisations work? Yes, the server was not overloaded
+
+| | iPhone 17 | iPhone 16 |
+|---|---|---|
+| Frame rate | steady 120 fps | 120 fps captured |
+| Frames dropped | 0 | 0 |
+| Mac load / latency | ~12% busy, 8 ms median | ~0%, 1 ms median |
+| Data sent | 3.8 Mbit/s | **5 kbit/s** |
+
+- **The phone-side data reduction works.** The iPhone 16 skipped about half its frames because nothing moved in them, and sent almost nothing. The last field test dropped 19 000 frames; this one dropped none.
+- **The iPhone 17 still has an old build of the app** without the reduction. It also finished at **5% battery**, and both phones reached "serious" heat level.
+- **The Redmi in the dark** managed only 10–30 fps and found almost no ball candidates, which matches what you saw.
+
+## Bugs this session exposed, now fixed
+
+1. **The mini-court size was applied twice.** The line judge used the correct 1.2 × 2.7 m court. But each camera's processing used a court 5× smaller than that, and so did replays.
+2. **The ball search area didn't shrink with the mini court.** It was the court plus a full-court-size margin, which took in lights and people. Shrinking it raises the bounces both cameras catch from 4 to 20 in a replay.
+3. **Two disagreeing cameras could still produce a spoken OUT.** For example, one says OUT by 30 cm while the other says IN by 50 cm. Now an OUT is spoken only if each camera calls it OUT on its own.
+4. **The dashboard now catches this calibration mistake.** After about 3 bounces both cameras saw, it shows **"Calibrated from the other end?"**. Review swaps the labels for you; then click Calibrate. Tonight it would have appeared about 2 minutes into play.
+5. **The docs and the calibration dialog now say A is the same end for every camera.**
+6. **Smaller fixes:** the Redmi's −1202 fps came from a clock-sync step and no longer happens. The report now shows each phone's capture rate rather than the rate it sent.
+
+With your labels corrected plus these fixes, a replay of tonight gives 13 UNCERTAIN instead of 33, and 6 spoken OUTs. I can't tell you whether those OUTs were right, because there are no marks for this session.
+
+All 93 tests pass. Everything is pushed (`41c45af`), including this session's ball detections (no video) and decision log entry 23.
+
+## Before the next session
+- **Reinstall the app on the iPhone 17**, so it gets the data reduction.
+- Charge both phones and keep them out of direct heat.
+- Calibrate both with the same A. If you mark a few bounces with chalk, I can score the calls.
