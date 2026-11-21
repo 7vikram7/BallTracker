@@ -878,7 +878,7 @@ reviewing agent is in `docs/reviews/2026-11-21-response-to-defed68-review.md`.
   * the app sends the real clock source and retunes the detector to the delivered fps (asked 120,
     got 58);
   * the server warns about all three.
-* **CI (TODO-22).** `ci/github-actions.yml` (not active yet: GitHub refused the push of `.github/workflows/` without the token's `workflow` scope; the owner copies it there): the full suite with `BT_REQUIRE_ALL=1` on Linux.
+* **CI (TODO-22).** `.github/workflows/ci.yml` (GitHub Actions, on every push to main): the full suite with `BT_REQUIRE_ALL=1` on Linux.
   On Apple silicon: the C++ detector built with the podspec and CMake flags, checked for no fused
   multiply-add instructions (with control builds that do show them; the NDK contracts by default),
   the parity tests on arm64, and the wasm built from source and tested.

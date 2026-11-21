@@ -32,7 +32,7 @@ produces. There is still no ground truth, so "calls changed" means changed, not 
 | TODO-19 processed coverage | done | this commit |
 | TODO-20 weak tests | done | ee648f1 |
 | TODO-21 BT_REQUIRE_ALL | done | ee648f1 |
-| TODO-22 native builds in CI | workflow written, not yet active (needs the owner) | this commit |
+| TODO-22 native builds in CI | done (GitHub Actions) | this commit |
 | TODO-23 capture rate and clock source | done | this commit |
 | TODO-24 Android native errors | done | this commit |
 | TODO-25 iOS race, buffer hold, nil clock | done | this commit |
@@ -137,7 +137,7 @@ produces. There is still no ground truth, so "calls changed" means changed, not 
   `fps_delivered` in state.
 - Tests: `mobile/test/core.test.js` (2 new) and `test_phone_warnings_for_delivered_fps_clock_and_detector_errors`.
 
-**TODO-22: CI** (`ci/github-actions.yml`; to switch it on, copy it to `.github/workflows/ci.yml`. The push token here lacks GitHub's `workflow` scope, so the owner has to add it, from the web UI or with a token that has the scope).
+**TODO-22: CI** (`.github/workflows/ci.yml`, active on every push to main).
 - Linux runs the whole suite with `BT_REQUIRE_ALL=1`, plus the app unit tests.
 - macOS arm64:
   - compiles `ballcore.cpp` with the flags read from the podspec and from CMakeLists, and asserts

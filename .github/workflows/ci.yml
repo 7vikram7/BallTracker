@@ -1,6 +1,4 @@
 # Continuous integration (review of defed68: TODO-21, TODO-22; decision log entry 28).
-# To switch it on: copy this file to .github/workflows/ci.yml (needs a GitHub token with the
-# `workflow` scope, or add it in the GitHub web UI).
 #
 # * tests: the whole suite on Linux with BT_REQUIRE_ALL=1, so a missing compiler, node, Chrome or
 #   data file fails the run instead of skipping silently.
