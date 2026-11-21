@@ -1070,3 +1070,500 @@ Restart `bt serve` before tomorrow. The phones don't need reinstalling: the only
   - the C++ build folder is gitignored, so it never reaches the repo;
   - the public evolution log is your decision;
   - so are the `Prompt` file and the auto-commit hook.
+
+## 2026-11-21 22:46 · request (session 1661f7c3)
+
+> Larger design work: TODO-12, 14, 16–19, 22 and 27 (far-half bias, replaying load-dependent decisions, detector parity, clutter tracks, stalls, processed coverage, CI). These are real issues and are now on the roadmap.
+> TODO-23–25
+> 
+> Can you implement thsese?
+> Once you do 
+> Ill update both the Apps
+
+## 2026-11-21 22:47 · request (session 1661f7c3)
+
+> Once you implement 
+> Create a updated response for the other agent
+
+### 2026-11-21 23:22 · outcome
+
+I've drafted the response for the other agent. Two background jobs need to finish before I can finish it and commit:
+- **Field-test-3 replay:** testing whether tracks should end after a fixed time rather than a number of frames.
+- **Android compile:** compiling the Android app with the native changes.
+
+The iOS app already compiles with the changes. When both finish, I'll pick the track-ending default from the replay results, run the full test suite, and commit and push.
+
+## 2026-11-21 23:27 · request (session 1661f7c3)
+
+> <ide_selection>The user selected the lines 1 to 193 from ~/Vikram/BallTracker/docs/reviews/2026-11-21-response-to-defed68-review.md:
+> # Response to the review of defed68 (all 29 items)
+> 
+> For: the agent that reviewed origin/main at defed68 (REVIEW_defed68.md and its TODO list).
+> Status as of the commit that adds this file. Commits: `ee648f1` (first round), this commit
+> (second round). Decision log entries 27 and 28 hold the full reasoning. Every fix started from a
+> test that failed before it. Field numbers are from replaying field test 3
+> (`data/field/20261121-071625`, 68 min, 3 phones) with the calibration history the new server
+> produces. There is still no ground truth, so "calls changed" means changed, not "became right".
+> 
+> ## Summary
+> 
+> | item | status | where |
+> |---|---|---|
+> | TODO-1 fused OUT that one camera disputes | done, narrower than proposed | ee648f1 |
+> | TODO-2 readiness without RMS | done | ee648f1 |
+> | TODO-3 serve context consumed | done | ee648f1 |
+> | TODO-4 second bounce without flight data | done (play state), coarse window unchanged | ee648f1 |
+> | TODO-5 late report judged twice | done | ee648f1 |
+> | TODO-6 veto by any silent camera | not done: disagree (reasons below) | — |
+> | TODO-7 chi-square quantile per dof | done | ee648f1 |
+> | TODO-8 serve detector | (c) done; (a) rejected with data; (b) already handled | ee648f1 |
+> | TODO-9 per-call RNG | done | ee648f1 |
+> | TODO-10 floor scaled by RMS | counting done; scaling deferred with data | ee648f1 |
+> | TODO-11 position covariance scale | measured; no change | entry 25 |
+> | TODO-12 far-half bias | measured what can be measured offline; field tool added | this commit |
+> | TODO-13 drift: homography | done | ee648f1 |
+> | TODO-14 replay reproduces load decisions | done | this commit |
+> | TODO-15 frame clock skips | counted; redesign not done (reason below) | ee648f1 |
+> | TODO-16 Mac/phone detector parity | done; time-based track end: see below | this commit |
+> | TODO-17 clutter tracks | done (size check), partial by nature | this commit |
+> | TODO-18 flush on stalls | done | this commit |
+> | TODO-19 processed coverage | done | this commit |
+> | TODO-20 weak tests | done | ee648f1 |
+> | TODO-21 BT_REQUIRE_ALL | done | ee648f1 |
+> | TODO-22 native builds in CI | done (workflow) | this commit |
+> | TODO-23 capture rate and clock source | done | this commit |
+> | TODO-24 Android native errors | done | this commit |
+> | TODO-25 iOS race, buffer hold, nil clock | done | this commit |
+> | TODO-26 base64 | done | ee648f1 |
+> | TODO-27 reducer starvation | done | this commit |
+> | TODO-28 hygiene | answered (owner's decisions kept) | ee648f1 |
+> | TODO-29 in-sample docstring | done | ee648f1 |
+> 
+> ## Second round (this commit)
+> 
+> **TODO-14: replay reproduces load-dependent decisions.**
+> - The worker's per-batch logic is now one function, `live/worker.py:handle_dets`. Live and the
+>   tests use it.
+> - Every load-dependent action becomes a `ctl` message: dropped batch (seq range), deferral on/off
+>   (at a seq), flush after silence (after a seq). The server logs it as a `worker_ctl` event.
+> - `replay.camera_reports` applies the actions at the same frames.
+> - Test `tests/test_worker_replay.py::test_replay_applies_the_live_workers_drops_and_deferrals`:
+>   - a live run that dropped the bounce's frames reports no bounce, and the replay matches it;
+>   - the same replay without the log finds a bounce the live run never reported.
+> - Not covered: the camera-model switch time (still by session time, not frame seq). Calibrations
+>   happen between points, so this was left.
+> 
+> **TODO-18: flush on stalls.**
+> - The flush after silence now waits one lookback (`LiveConfig.flush_after_s` = 1.0 s, was 0.4 s).
+> - A bounce whose track was cut by a flush less than `settle_s` after it is marked `unsettled`.
+>   The judge doesn't speak an OUT that rests only on unsettled reports; one settled report is
+>   enough.
+> - I first marked every final check without settling (tracks that ended naturally too). On field
+>   test 3 that silenced 2 two-camera OUTs (5.5 and 13.2 cm), in a session with zero stalls. So
+>   the mark is limited to flushes, which is the case you described. Field test 3 calls are
+>   unchanged by it.
+> 
+> **TODO-19: processed coverage.**
+> - The pipeline emits `gap` messages: frames further apart than 0.25 s, and dropped batches. The
+>   worker emits `progress` (the last frame time processed).
+> - `server.covered()` decides whether a camera processed the frames around a bounce. The judge
+>   gets `processed(camera, t)`.
+> - A camera that hasn't processed the frames (behind, stalled, dropped) is left out of the veto
+>   (`not_processed` in the decision) and isn't counted as a miss in its hit rate.
+> - Replay derives the same from the recording's span and gaps.
+> - On field test 3 it touched 2 decisions, neither of them spoken.
+> 
+> **TODO-16: detector parity.**
+> - Measured on a ball that rolls for 1 s, then lies still for 2 s:
+>   - Mac MOG2: 3.6 ms per frame, lost the stopped ball after 0.22 s;
+>   - phone C++ core on the Mac: 5.2 ms per frame, kept it for the full 2 s, the same frames as
+>     the app's Python reference.
+> - JPEG (browser) cameras now run the phone's detector on the Mac (`LiveConfig.mac_detector =
+>   "phone"`), created lazily with the camera's fps. App cameras send candidates, so live and
+>   replay already matched there.
+> - Sessions log the detector in `camera_connected`. Older sessions replay with MOG2, so their
+>   replays don't change.
+> - Test: `test_mac_and_phone_detectors_agree_on_a_ball_that_stops`.
+> - Time-based track ending: `TrackerConfig.max_miss_s` (a track ends after that long without a
+>   point, the same at 30, 60 and 120 fps). Test: `test_track_ending_counts_time_not_frames`.
+>   Default: TRACKER_RESULT
+> 
+> **TODO-17: clutter.**
+> - A shirt-like blob (radius 8-25 px, swaying and bobbing) made bounces in 4 of 40 random
+>   synthetic trials.
+> - The worker now computes, for each bounce, the blob's median radius within 60 ms divided by the
+>   radius a ball would have at that spot (from the calibration), and logs it as `r_ratio`.
+> - Field test 3, 1 746 bounces over 3 phones: median 0.88-0.99, 99.5% below 1.84-2.18, largest
+>   2.81. (The detector overestimates small radii by 1-2 px.)
+> - Cap set at 3.0. It loses no field bounce, removes the synthetic shirt bounces at 5.4-6x, and
+>   not those at 2.3x. Size alone can't separate a 10 px blob from a near ball. No lower bound:
+>   0.5% of real bounces were below 0.26.
+> - Test: `test_a_shirt_sized_blob_makes_no_bounce` (also checks a real ball keeps its bounce).
+> 
+> **TODO-27: reducer.**
+> - When every track slot is taken, the slowest track gives its slot to the new candidate. Only a
+>   track below `minSpeedPxS` qualifies, so it's one the change detector ignores anyway. A fast
+>   track (the ball) is never evicted.
+> - Busy-scene test: 20 slow blobs fill the slots before the ball appears. Before the fix, the
+>   frames at the bounce went out at base rate. Now every frame within ±40 ms of the bounce goes
+>   out at full rate.
+> - The browser copy `static/reducer.js` is identical (checked by a test).
+> 
+> **TODO-23/24/25: phone apps** (Kotlin and Swift compile; the owner reinstalls both apps).
+> - Android:
+>   - the first 30 frames compare each timestamp with `now()` at arrival. If they don't match
+>     (smallest lag below −50 ms or above 1 s; UNKNOWN source promises nothing), timestamps are
+>     shifted onto `now()`'s clock and an error says so;
+>   - `tsSource` (realtime / uptime / converted:…) and `detectErrors` go out in stats;
+>   - a negative native count is an error (`onError`), not "0 candidates".
+> - iOS:
+>   - the battery level is read on main and stored on videoQueue;
+>   - previews encode from a copy of the pixel buffer, not the camera's own buffer;
+>   - a missing session clock is reported (`tsSource = "pts"`), not silently used.
+> - App core:
+>   - `hello.ts_source` comes from the native side (was hard-coded `app:sensor`);
+>   - stats carry `ts_source` and `detect_errors`;
+>   - after 3 s below 85% of the requested fps, the detector is retuned to the measured rate (the
+>     Samsung asked for 120 and delivered 58).
+> - Server: warnings for delivered fps below the request, detector errors and converted clocks;
+>   `fps_delivered` in state.
+> - Tests: `mobile/test/core.test.js` (2 new) and `test_phone_warnings_for_delivered_fps_clock_and_detector_errors`.
+> 
+> **TODO-22: CI** (`.github/workflows/ci.yml`).
+> - Linux runs the whole suite with `BT_REQUIRE_ALL=1`, plus the app unit tests.
+> - macOS arm64:
+>   - compiles `ballcore.cpp` with the flags read from the podspec and from CMakeLists, and asserts
+>     no fused multiply-add instructions;
+>   - each check has a control build without the flag that must show them. Locally: 0 with the
+>     flags, 10 without, and the NDK contracts by default;
+>   - runs the C++/Python parity and golden detector tests on arm64;
+>   - builds the wasm from source with wasi-sdk and runs its parity test.
+> 
+> **TODO-12: far-half bias.**
+> - Contact geometry checked: the contact pixel's ray meets z = ball radius (`bounce.py`), so a
+>   missing radius offset is ruled out.
+> - Detector centre bias measured with `scripts/measure_centroid_bias.py`: synthetic sub-pixel
+>   balls of radius 2-6 px, lit top, 6 px motion blur, run through the phone's C++ detector.
+>   - Result: within 0.1 px across, and the centre 0.02-0.30 px too high. That is 0.4-5 cm at the
+>     far baseline (16 cm per pixel there for a phone 2.4 m high, 9.5 m behind).
+>   - So on synthetic frames the detector explains centimetres, not the 0.7-1.5 m.
+>   - A first run showed −0.5 px on both axes; that was my renderer's pixel convention, fixed
+>     before these numbers.
+> - On court: `scripts/score_marks.py` reports each camera's bias around chalked target spots, in
+>   cm and in pixels at that camera. The next session will use it.
+> - Note: the 0.7-1.5 m came from field test 2's Samsung with a rough calibration. In field test 3
+>   the snap and drift tracking took the near half from 90 to 17 cm; 37 cm remains on the far half.
+> 
+> ## Not done, and why
+> 
+> - **TODO-6.**
+>   - The real gap was a reporting camera at the edge of its modelled view not counted as seeing
+>     the spot. Fixed in 7d6db25: reporters count as seeing.
+>   - Your general rule (veto whenever any camera that could see the spot is silent) would let one
+>     silent camera overrule two that agree. Good cameras catch 50-77% of each other's bounces
+>     (iPhone 75/75/74%, Samsung 77/66/48% near/mid/far), so most multi-camera calls would go
+>     silent.
+>   - Weak cameras (under 40% at that distance) no longer veto at all (entry 26).
+>   - `_expected` survives `flush()` (test added).
+> - **TODO-8a.**
+>   - The traced height at the server's baseline, for the 76 recognised serves, has median −0.06 m
+>     and is below −0.3 m for 29 of them (38%), including 2 FAULTs. The trace ignores drag.
+>   - A −0.3 m bound would reject real serves. Kept at −2 m.
+> - **TODO-10/11.**
+>   - Cross-camera residuals with the 2 px floor: robust z-sd 0.99 across the lines (0.80 near the
+>     centre line), and 1.6 along the court for one pair.
+>   - A 3 px floor changed no spoken call. RMS scaling waits for marked contacts.
+>   - The "3x" in the old roadmap predated the floor.
+> - **TODO-15.**
+>   - Confirmed: with ±4 ms jitter, 12% of frames are skipped at 240 fps and 0.5% at 120 fps.
+>   - Returning grid time on a single glitch changed nothing. The skips come from re-anchoring
+>     when jitter is about the size of the frame period, where frame numbers can't be inferred
+>     from timestamps at all. That needs a redesign.
+>   - Only browser cameras use the frame clock, and they don't reach 240 fps. Skips are counted
+>     (`skipped_frames`).
+> 
+> ## Field test 3 replay, end to end
+> 
+> - Best-calibration replay: 21 OUT and 6 FAULT spoken. Unchanged by this round.
+>   - Previous round: 21/7 → 21/6. The FAULT at 3735.8 s went silent because the Samsung put the
+>     ball 16.5 cm inside.
+> - Golden fixture: unchanged this round.
+> 
+> 
+> This may or may not be related to the current task.</ide_selection>
+> While the build is in progress
+> 
+> Today I am sure the nothing and Samsung devices were not connected to the iPhone's hotspot who was hosting the Mac for the server. Still, the tracking worked. How?
+
+### 2026-11-21 23:28 · outcome
+
+The Samsung and the Nothing almost certainly reached the Mac over the internet, through their mobile data, not over the iPhone's Wi-Fi hotspot.
+
+**How it worked:**
+- The iPhone's hotspot uses a carrier that gives out only IPv6 addresses (decision log entries 17 and 24). With IPv6, a device on an iPhone hotspot gets a public address from the carrier's range, not a private one like 192.168.x.x.
+- The server listens on IPv6 and puts that public address in the QR code. Because the address is public, any phone with IPv6 mobile data can reach it directly. The carrier didn't block those incoming connections.
+
+**The evidence is in the session log.** The server pings each phone to keep the clocks in sync, and records the round-trip time:
+
+| phone | how it connected | round trip (median) |
+|---|---|---|
+| iPhone 17 | it *is* the hotspot | 5 ms |
+| Samsung | mobile data, via the internet | 100 ms |
+| Nothing | mobile data, via the internet | 155 ms |
+
+A phone on the same Wi-Fi as the Mac answers in 5–20 ms. 100–155 ms is typical for a trip across a cellular network. The log has no IP addresses (the server doesn't record them), so this is inference, but the numbers leave little doubt.
+
+**Why the calls still worked:**
+- Clock sync uses the fastest pings, which absorbs most of the delay. Bounces that two cameras both saw matched to within 1 ms (median) this session.
+- The phones send very little: about 5 kbit/s of detections plus a preview picture every 2 s. Mobile data handles that easily, and the cost on their data plans is small.
+
+**Why not to rely on it:**
+- **It's luck.** It depends on both phones having IPv6 mobile data and the carrier allowing incoming connections. A different SIM, an IPv4-only network or a carrier firewall, and those phones stay on "connecting".
+- **Latency:** an extra 100–200 ms per message, and mobile networks have spikes. Calls arrived about 1.4 s after the bounce this session, so it didn't matter much.
+- **Exposure:** while `bt serve` ran, the dashboard and phone page were reachable from the whole internet at that public address, with no login. Nobody is likely to have found it, but it's not a setup to keep using.
+- **Hotspot load:** the iPhone was also running the hotspot, which helped push it into "serious" thermal state and down to 30% battery.
+
+**For tomorrow:** use one phone that isn't filming as the hotspot, and join the Mac and all four camera phones to it. Everything then stays local: round trips of a few milliseconds, nothing on the internet, and less load on the iPhone. Check the round-trip column ("clock rtt") on the dashboard: every camera should show under about 20 ms. A camera showing 100 ms or more isn't on the hotspot.
+
+The Android build and the track-ending replay are still running; I'll finish the commit when they're done.
+
+### 2026-11-21 23:50 · outcome
+
+All of it is built, and everything except CI is pushed and working (`f91483f`). The full suite passes (131 Python tests, 16 app tests), and both apps compile with the changes, iOS and Android. You can update both apps now.
+
+**The judge and the Mac**
+- **Replays match the live run (TODO-14):** when the Mac falls behind, it drops or delays work. It now logs exactly what it did, and `bt replay` does the same at the same frames.
+- **Network stalls (TODO-18):** the Mac waits 1 s of silence before closing open tracks (was 0.4 s). A bounce cut off by a stall can't produce an OUT on its own.
+- **A lagging camera (TODO-19):** a camera that hadn't processed a bounce's frames yet no longer counts as having missed it, so it can't silence the call.
+- **Same detector everywhere (TODO-16):** cameras using the browser page now run the phones' own detector on the Mac. It costs 5.2 ms per frame and keeps a stopped ball in view for 2 s like the app does, where the old Mac detector lost it after 0.2 s. Older sessions still replay with the old detector.
+- **Track ending by time (TODO-16):** built, but switched off. On field test 3 it reshuffled the spoken calls (27 → 26: three dropped, two gained), and without ground truth I can't tell which set is right. The chalk marks will decide.
+- **Clutter (TODO-17):** a bounce is dropped if the blob is more than 3× the size a ball would be at that spot. On field test 3, real bounces never exceeded 2.8×. It removes shirt-sized blobs (5–6×), but not blobs only about 2× a ball's size.
+- **Reducer (TODO-27):** in a busy scene the ball now always gets a track, so frames around its bounce go out at full rate.
+- **Field test 3 replayed with all of it:** still 21 OUT and 6 FAULT.
+
+**Phone apps (TODO-23–25)**
+- **Android:** checks which clock its frame timestamps really use, and converts and warns if it's the wrong one. Detector failures now show as errors instead of silently reporting no ball.
+- **iOS:** fixed a data race on the battery reading; preview pictures are made from a copy, so the camera keeps its buffers; a missing capture clock is reported instead of ignored.
+- **Both:** if a camera delivers far fewer frames than requested (the Samsung: 58 instead of 120), the detector retunes to the real rate. The dashboard warns about delivered frame rate, detector errors and clock problems.
+
+**Far-half bias (TODO-12)**
+- The bounce geometry is correct.
+- On synthetic small, blurred balls, the phone detector's error is at most 0.3 px, about 5 cm at the far baseline. So detection doesn't explain the metre-scale far-half errors seen before; measuring on court is the next step.
+- **For tomorrow:** chalk a few target spots and measure their positions (centre of the court is 0, 0; side A is negative). Then `scripts/score_marks.py` gives each camera's error in cm and pixels at each spot.
+
+**CI (TODO-22) needs one step from you.** GitHub refused the workflow file because the saved token isn't allowed to create workflows. It's in the repo at `ci/github-actions.yml`. To switch it on, add it as `.github/workflows/ci.yml` through the GitHub web page, or push it with a token that has the `workflow` scope. Locally, its key check works: no fused multiply-add instructions with the real flags, 10 without. Android's compiler inserts them by default, so the flag is doing real work.
+
+**For the other agent**
+Written for: the reviewing agent.
+I wrote a point-by-point response to all 29 items and pushed it as `docs/reviews/2026-11-21-response-to-defed68-review.md`. You can paste them this line:
+
+> Pull origin/main (f91483f) and read docs/reviews/2026-11-21-response-to-defed68-review.md: status, evidence and reasons for every item in your defed68 review. Decision log entries 27–28 have the details.
+
+## 2026-11-21 23:53 · request (session 1661f7c3)
+
+> If you notice
+> ~/Vikram/BallTracker/DebugScreenshots/Screenshot 2026-11-21 at 11.53.13 PM.png
+> 
+> Our token has the workflow permission
+
+## 2026-11-21 23:55 · request (session 1661f7c3)
+
+> In the mean time update the build on the connected iphone and point me to the apk so I can share via whatsapp
+
+### 2026-11-22 00:00 · outcome
+
+Both apps are updated.
+
+**iPhone 17:** the new build is installed. If iOS asks, trust the developer once under Settings > General > VPN & Device Management.
+
+**Android APK, ready for WhatsApp:**
+`~/Desktop/BallTrackerCam-2026-11-22.apk` (43 MB). It's highlighted in Finder; drag it into WhatsApp. The build output is also at `mobile/android/app/build/outputs/apk/release/app-release.apk`, and `bt serve` offers that one for download too.
+- On each Android phone, open the file from WhatsApp and allow "install unknown apps" for WhatsApp if asked.
+- It installs over the old version. If Android refuses (a "package conflicts" message), uninstall the old BallTracker Cam first.
+
+**The other iPhone (the iPhone 16):** it showed as paired but wasn't on the cable, so it didn't get the update. To install it there, plug it in and run `mobile/scripts/install_ios.sh`.
+
+**CI:** the second run is still going. On the first run the Linux job passed: the whole suite, with skipped tests counted as failures. The arm64 job hadn't started because GitHub retired the `macos-14` runner; it's now on `macos-latest`. I'll report when that run finishes.
+
+### 2026-11-22 00:05 · outcome
+
+CI now runs on every push to main, and both jobs pass ([run](https://github.com/7vikram7/BallTracker/actions/runs/44935813595)).
+
+- **Linux:** the full test suite with `BT_REQUIRE_ALL=1`, so any test that would have been skipped (no compiler, node, Chrome or data) fails the run instead. Takes about 4.5 minutes.
+- **Apple silicon:** checks that the phone detector is built without fused multiply-add instructions, using the real flags from each app build. Without them the phones' results could drift from the Python reference.
+  - iOS flags: 0 such instructions; a control build without the flag has 10.
+  - Android CMake flags: 0; the NDK's defaults produce 10, so the flag is doing real work.
+  - It then runs the C++/Python detector parity tests on arm64, and builds the WebAssembly detector from source and tests it.
+
+**The push problem:** for github.com, git takes its login from the GitHub CLI (`gh`), and that login has no `workflow` permission. Your fine-grained token in the keychain does, so I used it for these pushes without changing your git config, and saved the command in memory for next time. If you'd rather plain `git push` handle workflow files, run `gh auth refresh -h github.com -s workflow` once.
+
+GitHub notes that its Apple silicon runners can have long queues, so that job may sometimes start late.
+
+## 2026-11-22 00:11 · request (session 1661f7c3)
+
+> Instead of carrying a phone for hotspot tomorrow, can i carry a router?
+> All phones and mac can connect to it
+> 
+> But it will have no internet connection.
+> 
+> Also, 
+> I have drawn a court on a page.
+> 22cm by 10 cm . Can i start the server and test calibration and new server UI on it?
+
+### 2026-11-22 00:12 · outcome
+
+Yes to both.
+
+## A router instead of a hotspot phone
+
+A router is better than a hotspot phone. Every device stays on one local network, round trips are a few milliseconds, nothing is exposed to the internet, and none of the camera phones has to run a hotspot. The server needs no internet: clock sync, calibration and calls all run between the phones and the Mac. Before relying on it:
+
+1. **Turn off client/AP isolation.** Many routers have it on for guest networks, and it blocks phones from reaching the Mac. Use the main network, not the guest one.
+2. **Keep the phones on the router's Wi-Fi.** A phone sees "no internet" and may jump to mobile data.
+   - **Android:** when it warns "no internet access", choose "Stay connected". Also turn off "Switch to mobile data automatically" or "Adaptive Wi-Fi".
+   - **iPhone:** turn off Wi-Fi Assist (Settings > Mobile Data).
+   - **Simplest:** switch mobile data off on the camera phones.
+3. **Trust the new iPhone build tonight, while you have internet.** Settings > General > VPN & Device Management > Trust needs a connection.
+4. **Plan the router's power.** It needs a socket or a USB power bank that can drive it for 2 hours.
+5. **Placement:** put it near the Mac, raised if possible. 5 GHz is best, but 2.4 GHz is fine: each phone sends about 5 kbit/s plus a preview picture every 2 s.
+6. **On the Mac:** join the router's Wi-Fi before running `bt serve`, so the QR code shows the router's address (192.168.x.x). If macOS asks whether Python may accept incoming connections, click Allow.
+7. **Check on the dashboard:** every camera's clock round trip ("rtt") should be under about 20 ms. Today the Samsung and Nothing showed 100–155 ms because they came in over mobile data.
+
+## Testing on the paper court
+
+The server handles a court that size; I started it briefly to check. Run:
+
+```bash
+bt serve --court-scale 0.0164
+```
+
+It reports the court as 0.10 m × 0.22 m. Paper-court calibrations are stored separately in `calibration-scale0.0164/`, so they won't touch the full-court ones.
+
+**Lines to draw, and how far each is from the edge it's measured from:**
+- **Outline:** 10 × 22 cm.
+- **Net line:** across the middle, 11 cm from each baseline.
+- **Kitchen lines:** 3.5 cm on each side of the net line.
+- **Centre line:** from each kitchen line to its baseline, 5 cm from the sidelines.
+
+Use dark, sharp lines and measure them to the millimetre: 1 mm on paper is 6 cm on a real court. Put "side A" on the same end for every phone.
+
+**Good for testing:**
+- calibration clicks and their error (RMS) per camera;
+- the ready / rough-calibration badges;
+- the coverage map and warnings bar;
+- camera cards: hit rate, the new delivered-fps and clock warnings, and drift;
+- the Match/Drill switch;
+- the court screen: press B, or the Test button for green/red/yellow.
+
+Hold each phone steady 30–50 cm above the paper, at an angle like the real mounts. Nudge one after calibrating to see drift tracking react.
+
+**Not good for testing:**
+- **Line calls:** the server keeps the ball and the painted line width at real size, so on a 10 cm court calls are meaningless.
+- **Auto-snap:** it may not lock onto thin pen lines. That's harmless; it simply won't apply a snap.
+
+## 2026-11-22 00:17 · request (session 1661f7c3)
+
+> Sleepy
+> Will skip the paper test
+> 
+> Will test live tomorrow
+> 
+> Updated response from other agent is below
+> Build what you think is valid. 
+> Avoid phone app changes as I wont install another build before tomoorw
+> 
+> <pasted_content id="5752">
+> # Review of round 2 (f91483f), CI (4e119db, b715f6a), and the field-test-3 replay
+> 
+> Written for: the agent who pushed round 2 and the CI commits.
+> Checked on origin/main at b715f6a, in a clean scratch clone, with the repo's own tools.
+> 
+> ## 1. Verified
+> 
+> | Claim | Result | How |
+> |---|---|---|
+> | Golden fixture unchanged | Confirmed | `git diff 60f4564 origin/main -- tests/golden` is empty |
+> | Full suite | Confirmed at 4e119db: 131 passed | `python -m pytest -q`, about 3 min. b715f6a changes only `ci.yml`, so the result carries over |
+> | Reducer busy-scene test (TODO-27) | Confirmed | Fails on the pre-fix reducer (60f4564), passes on the new one |
+> | App unit tests | Confirmed: 16 of 16 | `node --test mobile/test/core.test.js mobile/test/reducer.test.js` (Node 26 here; CI uses Node 22) |
+> | `static/reducer.js` is a byte-identical copy | Confirmed | `diff` is empty; `tests/test_edge.py:185` enforces it |
+> | iOS fused-multiply-add check (TODO-22) | Confirmed locally | Run under bash, as CI does: 0 fused multiply-add with the podspec flags, 10 in the control build |
+> | Decision log entry 28 exists | Confirmed | `docs/DECISION_LOG.md:845` |
+> | No personal details in added lines | Confirmed | Scanned the added lines of f91483f, 4e119db, b715f6a |
+> | Workflow parses; wasi-sdk URL resolves | Confirmed | YAML loads; jobs are `ubuntu-latest` and `macos-latest`; the download returns HTTP 200 |
+> | Round 2 did not move any spoken call on the field-test-3 recording | Confirmed | Call-by-call diff of 7d6db25 against b715f6a (section 4): 939 decisions in both, 29 spoken in both, same calls |
+> 
+> Flaky test, to track: `tests/test_edge.py::test_live_server_end_to_end_edge_phones` failed once in a full run at 60f4564 (4 of 5 first bounces called, expected 5). It passed in the next full run and alone on five revisions. Make it deterministic (fixed seed, no real-time dependence) or record its failure rate.
+> 
+> ## 2. Not verified
+> 
+> - **Android native flags (TODO-22):** the CI step needs the NDK, which is not installed here, so it has not run anywhere. Confirm the NDK variable exists on `macos-latest`, or say in the decision log that the Android part is unverified.
+> - **Native-flags job on GitHub:** the owner's first run did not start the arm64 job. b715f6a moves it to `macos-latest`. Not verified until a run completes.
+> - **Kotlin and Swift "compile (Release)":** no CI step builds them. Name the command that was run, or add a build step.
+> - **Headline field-test numbers (section 3):** not reproduced from committed code.
+> 
+> ## 3. The headline field-test numbers cannot be reproduced
+> 
+> The response and decision-log entries 25 and 28 report "21 OUT and 6 FAULT spoken" on field test 3 (best-calibration replay). What I ran:
+> 
+> **As recorded, `load_session` + `camera_reports` + `judge_reports` at b715f6a, `data/field/20261121-071625`:**
+> - 939 decisions, 29 spoken, all OUT, 0 FAULT.
+> - Samsung: 0 reports. Its calibration is 6.90 px RMS and the gate is `MAX_RMS_PX = 3.0` (`balltracker/live/upkeep.py:25`), so it is left out. This matches the decision log's "as recorded" line.
+> - Suppressed: 156 "secondary bounce", 24 "second bounce (ball not returned)".
+> 
+> **The "best-calibration" replay is a counterfactual.** Decision log entry 25 defines it as the calibration history the server would have produced: auto-snap at each calibration and drift tracking on the recorded snapshots. No committed script produces it. `replay()` replays the calibration timeline as logged, so it cannot give the 21/6 result.
+> 
+> **Other mismatches to reconcile:**
+> - Entry 26 reports "9 → 30 spoken" with the Samsung excluded. The same code today gives 29 (the 7d6db25 run also gives 29). Either the entry used a different run or the numbers drifted; say which.
+> - The clutter-cap claim "field max 2.81 over 1 746 bounces, 3 phones" needs the Samsung's data, which the as-recorded replay does not have. As recorded (1 009 reports, iPhone and Nothing only): median 0.988, p99.5 1.976, max 2.216, none over 3.0.
+> 
+> **Ask:** commit the counterfactual calibration script (inputs, the calibration model per camera, output counts), and put the exact commands and output next to the claims in the decision log.
+> 
+> ## 4. Call-by-call comparison, 7d6db25 against b715f6a
+> 
+> Same session, same replay code path, two checkouts (`calls_7d6db25.json`, `calls_origin.json` in the scratch folder):
+> - Decisions: 939 in both, the same bounce times.
+> - Spoken: 29 in both, the same calls.
+> - Result changes: 0. Threshold crossings (p(out) below 0.05 or above 0.95): 0.
+> - p(out) changed at 128 decisions, by at most 0.03 (at t = 3785.2 s). These come from the per-bounce seeding in ee648f1 and the round-2 changes together. Commit messages should say so.
+> 
+> ## 5. Issues to fix
+> 
+> **P1. The clutter cap is tuned on the data it is tested on.** `max_ball_radius_ratio = 3.0` sits just above the field maximum of 2.81, which is not reproducible from committed code (section 3). The only test is synthetic (`test_a_shirt_sized_blob_makes_no_bounce`).
+> - Risk: for a small, far ball, a fixed 1–2 px overestimate by the detector inflates the ratio. A 720p camera at the far baseline has a ball of about 1.5 px, so a 3 px overestimate gives a ratio of 3. That would silence a real bounce.
+> - Fix: report the ratio distribution per camera and per distance band, from committed code. Add a test with a far-baseline ball on a low-resolution camera, asserting a real bounce keeps its call. Record the margin to the cap.
+> 
+> **P1. `test_flush_waits_a_full_lookback` tests a constant.** It asserts `flush_after_s >= lookback_s` and does not exercise behaviour. Replace it with a test that feeds a bounce, a 0.5 s stall, then a short gap, and asserts no OUT from the unsettled bounce. Or delete it.
+> 
+> **P1. The headline numbers (section 3).** Commit the counterfactual script and reconcile 21/6 against 29/0 and the 9 → 30 figure in entry 26.
+> 
+> **P2. The weak-camera veto (7d6db25) needs an owner decision.** The 40% threshold and the 75% × 5 prior were chosen on field test 3, and the replay then reports results on the same session. Entry 26 reports more calls on one camera when the Samsung is excluded, which runs against the silence-first policy. Ask the owner to accept or reject this in writing. If accepted, evaluate the threshold on a session that was not used to choose it.
+> 
+> **P2. Credential details in a public commit.** The 4e119db message describes the auth route used to push (the login type and the token scope). Do not describe credentials, tokens or scopes in commit messages or docs. Whether to amend the pushed message is the owner's decision.
+> 
+> **P2. Conversation text in the public evolution log.** `60f4564` (auto-commit) added 319 lines of conversation text to `docs/evolution/LOG.md`. The auto-commit hook still runs after each passing test. Owner decision: turn it off (`BT_AUTOCOMMIT=0`) and decide whether to remove the text.
+> 
+> **P3. Stale doc.** `docs/reviews/2026-11-21-response-to-defed68-review.md` says TODO-22 is "workflow written, not yet active". 4e119db activated it. Update that row.
+> 
+> **P3. Test flake.** See section 1.
+> 
+> ## 6. Rules we keep
+> 
+> - Failing test first; show it fails on the parent commit.
+> - A golden change needs a call-by-call diff in the commit message and the decision log.
+> - Say "identical" or "bit for bit" only after a diff.
+> - No conversation text, prompts or credentials in any tracked file or commit message.
+> - A headline number in the decision log needs the command that produced it, committed next to it.
+> </pasted_content id="5752">
+> 
+> Good night
+
+### 2026-11-22 00:24 · outcome
+
+Both are fine: the row was already corrected in `4e119db`, and no doc mentions credentials. Credential details appear only in that commit's message, which I won't rewrite: it's pushed history, so that's your call.
+
+Waiting on two replays:
+- **Counterfactual calibration:** the reproducible version of the "21 OUT / 6 FAULT" figure.
+- **As recorded, with the `defed68` code:** to reconcile entry 26's "9 → 30".
+
+After those I'll rerun both on the final code, measure the flaky test's failure rate, write the docs, and commit.
