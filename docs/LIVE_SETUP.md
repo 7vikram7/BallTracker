@@ -135,6 +135,19 @@ A scaled-down floor court works the same way: start the server with `bt serve --
   faster than 90 km/h, it was ball handling far outside the court between points, or one far
   camera was looking across the line.
 
+### Weak extra phones (720p, 30 fps)
+
+Use them as extras next to two good phones, never instead of one. Aim each weak phone at **its
+own end only**: the near baseline, the kitchen line and the sideline on its side, plus 1-1.5 m
+outside that sideline and baseline. Leave the far end out of its frame. On field test 3 the
+Nothing at 30 fps caught 17% of the bounces on its own half and 1% beyond 14 m; it helped as the
+second camera on the right sideline, which nothing else covered well.
+
+The camera card shows each phone's hit rate: the share of bounces the other cameras saw that it
+caught too, by distance (*catches near 17% of 208, mid 5% of 205 ...*). A camera that catches
+fewer than 40% of the bounces at a given distance doesn't veto a lone camera's OUT there just by
+missing it. Other cameras still do.
+
 ## 5. Capacity on this Mac (2020 Intel i5, 4 cores)
 
 With **Ball detection: On this phone** (the app, or the browser page's on-phone mode) the Mac only

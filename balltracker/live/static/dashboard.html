@@ -309,6 +309,11 @@ function renderCourt() {
 }
 
 // ---------------------------------------------------------------- cameras
+function hitRate(h) {  // share of the other cameras' bounces this camera also caught, by distance
+  if (!h) return "";
+  const parts = Object.entries(h).filter(([, v]) => v.of >= 5).map(([k, v]) => `${k} ${Math.round(100 * v.hits / v.of)}% of ${v.of}`);
+  return parts.length ? ` · catches ${parts.join(", ")}` : "";
+}
 const fmt = (v, d = 0, u = "") => (v == null || Number.isNaN(v)) ? "–" : Number(v).toFixed(d) + u;
 function camCard(c) {
   let card = document.getElementById("cam-" + c.name);
@@ -341,7 +346,7 @@ function camCard(c) {
         ? `<b style='color:var(--warn)'>${fmt(c.cands_per_frame, 1)} candidates/frame</b> (yellow-green objects in view?)`
         : `${fmt(c.cands_per_frame, 1)} candidates/frame`)} · ${c.max_tracks ?? "–"} tracks</span>
     <span>clock</span><span>rtt ${fmt(clk.rtt_ms, 0, " ms")} · ±${fmt(clk.uncertainty_ms, 1, " ms")} · drift ${fmt(clk.drift_ppm, 0, " ppm")} · ${c.ts_source || "?"}</span>
-    <span>calibration</span><span>${c.calibrated ? "RMS " + fmt(c.calib_rms_px, 2, " px") + (c.ready ? "" : ` <b style='color:var(--bad)'>too rough: not used for calls</b>`) : "<b style='color:var(--warn)'>needed for calls</b>"}${c.drift && c.drift.status ? ` · position ${({ steady: "steady", pending: "checking a move", followed: "moved " + fmt(c.drift.moved_px, 0) + " px, followed", big: "<b style='color:var(--bad)'>moved a lot: recalibrate</b>", lost: "<b style='color:var(--warn)'>can't check</b>" })[c.drift.status] || c.drift.status}` : ""}${c.excluded ? ` · ${c.excluded} bounces not judged` : ""}${c.shared_bounces ? ` · ${c.shared_bounces} bounces shared with the reference camera (disagree ${fmt(c.shared_disagreement_cm, 1, " cm")})` : ""}</span>
+    <span>calibration</span><span>${c.calibrated ? "RMS " + fmt(c.calib_rms_px, 2, " px") + (c.ready ? "" : ` <b style='color:var(--bad)'>too rough: not used for calls</b>`) : "<b style='color:var(--warn)'>needed for calls</b>"}${c.drift && c.drift.status ? ` · position ${({ steady: "steady", pending: "checking a move", followed: "moved " + fmt(c.drift.moved_px, 0) + " px, followed", big: "<b style='color:var(--bad)'>moved a lot: recalibrate</b>", lost: "<b style='color:var(--warn)'>can't check</b>" })[c.drift.status] || c.drift.status}` : ""}${c.excluded ? ` · ${c.excluded} bounces not judged` : ""}${hitRate(c.hit_rate)}${c.shared_bounces ? ` · ${c.shared_bounces} bounces shared with the reference camera (disagree ${fmt(c.shared_disagreement_cm, 1, " cm")})` : ""}</span>
     <span>bounces</span><span>${c.bounces ?? 0}</span>`;
   let pr = card.querySelector(".prop");
   if (c.proposal) {

@@ -263,3 +263,58 @@ def test_a_worker_that_is_behind_defers_bounce_checks_until_tracks_end():
                                 (1280, 720))
     d = pipe.pop_diagnostics()
     assert d["checks"] == 0 and d["deferred_frames"] > 0
+
+
+# --- a weak camera's silence (entry 26) ----------------------------------------------------------
+
+def _plain(t, x, y, cams):
+    return BounceEvent(t=t, t_std=0.002, position=Point3(x=x, y=y), cov_xy=[[0.02**2, 0], [0, 0.02**2]],
+                       pixel=(0.0, 0.0), camera_ids=list(cams), confidence=1.0, supporting_observations=[],
+                       provenance=Provenance(algorithm="test", version="0"))
+
+
+def _judge_with_weak_camera():
+    from balltracker.live.playstate import PlayConfig
+
+    hl = COURT.half_l
+    # c2 does not see beyond baseline B; "weak" sees everything but rarely reports
+    j = LiveJudge(COURT, hold_s=0.3, play=PlayConfig(enabled=False),
+                  can_see=lambda cam, x, y: cam != "c2" or y < hl)
+    j.poll(0.0, expected_cameras={"c1", "c2", "weak"})
+    return j
+
+
+def _feed(j, ev):
+    for cam in ev.camera_ids:
+        j.add(ev.model_copy(update={"camera_ids": [cam]}), now=ev.t + 0.05)
+    return j.poll(ev.t + 1.0, expected_cameras={"c1", "c2", "weak"})
+
+
+def test_weak_cameras_silence_no_longer_vetoes_once_its_hit_rate_is_known():
+    hl = COURT.half_l
+    out = lambda t: _plain(t, 0.5, hl + 0.4, ["c1"])  # noqa: E731 - OUT seen by c1 only; c2 can't see it
+    # Before anything is known, the silent camera counts as reliable: the old veto.
+    d = _feed(_judge_with_weak_camera(), out(1.0))[0]
+    assert not d.call.announce and d.diagnostics["unconfirmed_by"] == ["weak"]
+    # 20 bounces both good cameras saw, the weak one none: its hit rate drops to ~15%.
+    j = _judge_with_weak_camera()
+    for k in range(20):
+        _feed(j, _plain(1.0 + 3 * k, 0.0, 2.0 if k % 2 else -2.0, ["c1", "c2"]))
+    assert j.recall.rate("weak", None) < j.weak_rate <= j.recall.rate("c2", None)
+    d = _feed(j, out(100.0))[0]
+    assert d.call.call_text == "OUT" and "weak" in d.diagnostics["silent_weak"]
+    # A good camera's silence still vetoes a lone camera's OUT.
+    d = _feed(j, _plain(110.0, 0.5, -hl - 0.4, ["c1"]))[0]
+    assert not d.call.announce and d.diagnostics["unconfirmed_by"] == ["c2"]
+
+
+def test_lone_camera_with_unmeasured_flight_is_not_announced():
+    j = LiveJudge(COURT)
+    b1 = _plain(1.0, 0.5, COURT.half_l + 0.3, ["c1"])
+    b2 = b1.model_copy(update={"camera_ids": ["c1", "c2"]})
+    call = j.caller.call(b1, None)
+    assert call.announce
+    assert j._gate(b1, call, {"play": "rally", "h_in_lo_mps": 5.0, "h_in_mps": 7.0}) is None
+    unmeasured = {"play": "rally", "h_in_lo_mps": -67.0, "h_in_mps": 60.0}  # field 3, 2026-11-21 at 2610.9 s
+    assert "flight not measured" in j._gate(b1, call, unmeasured)
+    assert j._gate(b2, call, unmeasured) is None

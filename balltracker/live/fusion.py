@@ -25,6 +25,18 @@ only one reported a bounce, an OUT is downgraded to UNCERTAIN (silent). A
 single camera can be fooled (a kink from a paddle hit, a dropped frame); a
 second camera that saw the same spot and saw nothing is evidence against it.
 
+How much evidence depends on how often that camera catches real bounces there
+(``CameraRecall``). Field test 3 (2026-11-21): a 720p 30 fps phone reported
+18% of the bounces the other cameras saw on its half and 1% on the far half,
+yet its silence vetoed calls like a perfect camera's. Now the judge learns each
+camera's hit rate during play, per distance band, from bounces other cameras
+confirmed. A silent camera that catches fewer than ``weak_rate`` of the bounces
+at that distance no longer vetoes; any other silent camera still does. (Weighting
+every veto by its camera's hit rate was tried and rejected: even the good
+cameras catch only 50-77% by this measure, so it also unlocked 26 more lone-camera
+OUTs that nothing can check.) A camera without data yet counts as fairly reliable
+(the old behaviour).
+
 Serves: the play state recognises a serve's landing (playstate.py); the bounce is then judged
 against the service court (FAULT) unless the dashboard set the serve context by hand.
 
@@ -33,6 +45,8 @@ several of them ball handling or tracking errors):
 
 * the ball arrived faster than ``PlayConfig.max_shot_mps`` even at the low end of its measured
   range (2 sd): not a ball in play;
+* one camera alone whose flight fit leaves the speed unknown (sd above that same limit): it can't
+  tell a shot from anything else;
 * "start of play" (a shot-like bounce that is neither a recognised serve nor part of a rally)
   more than ``far_out_m`` outside the court: ball handling between points;
 * one camera alone, farther than ``single_view_max_m`` from the bounce and looking across the
@@ -102,6 +116,41 @@ class _Group:
         return {c for e in self.events for c in e.camera_ids}
 
 
+class CameraRecall:
+    """How often each camera reports a bounce that other cameras confirmed, at a spot it can see,
+    per distance band from the camera. A beta prior (``prior_rate`` worth ``prior_n`` bounces)
+    keeps a camera with few observations close to "fairly reliable"."""
+
+    def __init__(self, scale: float = 1.0, edges_m: tuple[float, ...] = (8.0, 14.0),
+                 prior_rate: float = 0.75, prior_n: float = 5.0):
+        self.edges = tuple(e * scale for e in edges_m)
+        self.prior_rate, self.prior_n = prior_rate, prior_n
+        self.counts: dict[tuple[str, int], list[float]] = {}  # (camera, band) -> [hits, trials]
+
+    def band(self, dist: float | None) -> int:
+        return 0 if dist is None else int(np.searchsorted(self.edges, dist))
+
+    def update(self, cam: str, dist: float | None, hit: bool) -> None:
+        c = self.counts.setdefault((cam, self.band(dist)), [0.0, 0.0])
+        c[0] += float(hit)
+        c[1] += 1.0
+
+    def rate(self, cam: str, dist: float | None) -> float:
+        h, n = self.counts.get((cam, self.band(dist)), (0.0, 0.0))
+        return (h + self.prior_rate * self.prior_n) / (n + self.prior_n)
+
+    def summary(self, cam: str) -> dict:
+        """-> {"near": {"hits", "of", "rate"}, ...} for the bands with observations."""
+        names = ("near", "mid", "far") if len(self.edges) == 2 else tuple(str(i) for i in range(len(self.edges) + 1))
+        out = {}
+        for i, name in enumerate(names):
+            h, n = self.counts.get((cam, i), (0.0, 0.0))
+            if n:
+                out[name] = {"hits": int(h), "of": int(n),
+                             "rate": round((h + self.prior_rate * self.prior_n) / (n + self.prior_n), 2)}
+        return out
+
+
 @dataclass
 class Decision:
     bounce: BounceEvent
@@ -119,9 +168,12 @@ class LiveJudge:
                  can_see: Callable[[str, float, float], bool] | None = None, corroborate: bool = True,
                  play: PlayConfig | None = None, max_single_camera_std_m: float = 0.15,
                  view: Callable[[str, float, float], tuple[float, np.ndarray] | None] | None = None,
-                 single_view_max_m: float = 8.0, far_out_m: float = 1.0):
+                 single_view_max_m: float = 8.0, far_out_m: float = 1.0, weak_rate: float = 0.4):
         self.court = court
         scale = float(getattr(court, "scale", 1.0) or 1.0)
+        # a silent camera that rarely catches bounces at that distance doesn't veto (module docstring)
+        self.recall = CameraRecall(scale)
+        self.weak_rate = weak_rate
         # is the ball in play? serve? (see playstate.py; thresholds follow the court's scale)
         self.play = PlayState(play or PlayConfig.for_scale(scale), court)
         # view(camera, x, y) -> (distance m, horizontal unit vector camera -> point), or None
@@ -214,12 +266,22 @@ class LiveJudge:
             if std_n > self.max_single_camera_std_m:
                 call = call.model_copy(update={"result": CallResult.UNCERTAIN, "announce": False, "call_text": None})
                 diag = {**diag, "single_camera_std_cm": round(100 * std_n, 1)}
-        if call.announce and self.corroborate and self.can_see is not None:
-            seeing = {c for c in self._expected if self.can_see(c, b.position.x, b.position.y)}
+        seeing = ({c for c in self._expected if self.can_see(c, b.position.x, b.position.y)}
+                  if self.can_see is not None else set())
+        seeing |= set(b.camera_ids) & self._expected  # a camera that reported it saw it (edge of view)
+        if call.announce and self.corroborate and seeing:
             confirmed = seeing & set(b.camera_ids)
+            silent = sorted(seeing - confirmed)
             if len(seeing) >= 2 and len(confirmed) < 2:
-                call = call.model_copy(update={"result": CallResult.UNCERTAIN, "announce": False, "call_text": None})
-                diag = {**diag, "unconfirmed_by": sorted(seeing - confirmed)}
+                rates = {c: self.recall.rate(c, self._dist(c, b)) for c in silent}
+                strong = [c for c in silent if rates[c] >= self.weak_rate]
+                weak = {c: round(rates[c], 2) for c in silent if rates[c] < self.weak_rate}
+                if strong:
+                    call = call.model_copy(update={"result": CallResult.UNCERTAIN, "announce": False, "call_text": None})
+                    diag = {**diag, "unconfirmed_by": strong}
+                if weak:  # these rarely catch a bounce there: their silence proves little
+                    diag = {**diag, "silent_weak": weak}
+        self._learn_recall(b, seeing, ps)
         if call.announce:
             gate = self._gate(b, call, ps)
             if gate:
@@ -229,12 +291,30 @@ class LiveJudge:
             self.play.end_point()
         return Decision(b, call, list(g.events), diag)
 
+    def _dist(self, cam: str, b: BounceEvent) -> float | None:
+        v = self.view(cam, b.position.x, b.position.y) if self.view is not None else None
+        return None if v is None else float(v[0])
+
+    def _learn_recall(self, b: BounceEvent, seeing: set[str], ps: dict | None) -> None:
+        """Count, for each camera that could see this spot, whether it reported a bounce that
+        other cameras saw: two others, or one other on a ball in play (one camera's tracking
+        error would otherwise count as everyone else's miss)."""
+        reporters = set(b.camera_ids)
+        in_play = ps is None or bool(ps.get("announce_ok"))
+        for c in seeing:
+            others = len(reporters - {c})
+            if others >= 2 or (others == 1 and in_play):
+                self.recall.update(c, self._dist(c, b), c in reporters)
+
     def _gate(self, b: BounceEvent, call: LineCallEvent, ps: dict | None) -> str | None:
         """Plausibility checks for an OUT / FAULT about to be spoken (see the module docstring)."""
         if ps is not None:
             lo = ps.get("h_in_lo_mps")
             if lo is not None and lo > self.play.cfg.max_shot_mps:
                 return f"implausible speed (at least {lo:.0f} m/s)"
+            h = ps.get("h_in_mps")
+            if len(b.camera_ids) == 1 and h is not None and lo is not None and (h - lo) / 2 > self.play.cfg.max_shot_mps:
+                return f"one camera, flight not measured (speed {h:.0f} +- {(h - lo) / 2:.0f} m/s)"
             if str(ps.get("play", "")).startswith("start of play") and call.signed_distance_m > self.far_out_m:
                 return "start of play far outside the court (ball handling?)"
         if len(b.camera_ids) == 1 and self.view is not None:

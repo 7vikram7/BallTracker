@@ -501,7 +501,7 @@ class LiveServer:
                 "cands_per_frame": c.stats.get("cands_per_frame"), "max_tracks": c.stats.get("max_tracks"),
                 "mode": c.mode, "app": c.app, "ready": calibration_ready(c.camera), "drift": c.drift,
                 "excluded": c.excluded, "deferred_frames": c.stats.get("deferred_frames"),
-                "dropped_stale": c.stats.get("dropped_stale"),
+                "dropped_stale": c.stats.get("dropped_stale"), "hit_rate": self.judge.recall.summary(c.name),
             })
         ctx = self.judge.serve
         return {
@@ -1125,6 +1125,7 @@ def decision_dict(d: Decision, latency_s: float | None) -> dict:
         "n_reports": d.diagnostics.get("n"), "chi2": d.diagnostics.get("chi2"),
         "inflation": d.diagnostics.get("inflation"), "suppressed": d.suppressed,
         "unconfirmed_by": d.diagnostics.get("unconfirmed_by"),
+        "silent_weak": d.diagnostics.get("silent_weak"),
         "cameras_disagree": d.diagnostics.get("cameras_disagree"),
         "play": d.diagnostics.get("play"), "h_in_mps": d.diagnostics.get("h_in_mps"),
         "vz_in_mps": d.diagnostics.get("vz_in_mps"), "h_in_lo_mps": d.diagnostics.get("h_in_lo_mps"),

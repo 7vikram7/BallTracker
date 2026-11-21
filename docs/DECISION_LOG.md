@@ -683,6 +683,67 @@ FAULT calls against what players saw, and mark contacts on one line for ground t
 
 ---
 
+## 26. Did the 30 fps Android help? A weak camera's silence weighed by its hit rate (2026-11-21)
+
+**Request.** Did the 30 fps Android help in the last two sessions, and should it stay? Then:
+build the veto weighted by camera hit rate (proposed in entry 21). Tomorrow both weak phones
+(the Nothing and the Redmi) are used, each aimed at its own end.
+
+**Analysis.**
+* Night session (entry 23): the Redmi saw almost nothing in the dark and was never calibrated.
+  No contribution.
+* Field test 3, the Nothing (720p, 30 fps, behind the A-right corner):
+  * It caught 56 of the 318 bounces the iPhone saw inside the court on the A half (18%), and 2 of
+    260 on the B half.
+  * Re-judged without it (best-calibration replay): it was the second camera for 2 right-sideline
+    OUTs that the iPhone alone, 9 m away and looking across that line, could not make. That
+    sideline was the session's coverage gap.
+  * Its silence counted as a full veto: 46 decisions were marked unconfirmed by it, including a
+    two-camera OUT 1.6 m wide (at 4027.5 s), where its hit rate at that distance was 2%.
+  * Cost: 0.01 cores of the Mac; the phone stayed cool.
+* Hit rates learned during the session, per distance band from the camera (near < 8 m,
+  mid 8-14 m, far beyond): iPhone 75 / 75 / 74%, Samsung 77 / 66 / 48%, Nothing 17 / 5 / 0%.
+  Even the good cameras catch only 50-77% of the bounces the other cameras report. Part of that
+  is real misses, and part is other cameras' false bounces counted as misses.
+* Weighting every veto by its hit rate (veto when P(all silent cameras miss a real bounce)
+  <= 0.3) was tried first. It unlocked 26 more lone-camera OUTs on the best-calibration replay
+  (21 → 47 spoken), because the good cameras' vetoes weakened too. Rejected: a wrong OUT costs
+  more than a missed one.
+
+**Decision.**
+* `fusion.CameraRecall`: the judge counts, for each camera that could see a bounce spot, whether
+  it also reported a bounce that other cameras saw (two others, or one other on a ball in play).
+  Kept per distance band, with a prior of 75% worth 5 bounces, so a new camera vetoes as before.
+* A silent camera that catches fewer than 40% at that distance no longer vetoes (logged as
+  `silent_weak` with its rate); any other silent camera still vetoes (`unconfirmed_by`).
+* A camera that reported the bounce counts as seeing it, even at the edge of its modelled view.
+  Two cameras that both reported a bounce are never vetoed.
+* One camera alone whose flight fit leaves the speed unknown (sd above 25 m/s) is not announced.
+  At 2610.9 s a Samsung-only bounce 2 m out read 60 +- 64 m/s, and only the weak camera's veto
+  had been stopping it.
+* Considered and dropped: silencing every lone-camera "start of play" bounce. "Start of play"
+  means no recent bounce is known. That includes a lob after a volley exchange and drill feeds,
+  which tests protect on purpose, and the data can't tell those from ball handling.
+* The dashboard's camera card shows each camera's hit rate by distance. LIVE_SETUP has a section
+  on aiming weak phones at their own end only.
+
+**Effect** (no ground truth):
+* Best-calibration replay (the setup tomorrow should give): still 21 OUT and 7 FAULT spoken, with
+  one swap. The two-camera OUT at 4027.5 s is now spoken. A lone iPhone OUT at 3596.2 s, at the
+  edge of its view 1.7 m behind its baseline, is now silent: the Samsung could see that spot,
+  catches about half of the bounces there, and reported nothing.
+* Replay as recorded (the Samsung's reports excluded, so the iPhone is the only good camera):
+  9 → 30 spoken. The weak Nothing's silence had been the only thing holding back 21 iPhone-only
+  OUTs, mostly on the left sideline (which the iPhone looks along) and baseline A. **With only
+  one good camera, more lone-camera calls are spoken.** That is the same treatment a spot gets
+  when only one camera can see it at all.
+
+**Next.** Tomorrow: two good phones well calibrated (the readiness check and auto-snap help),
+weak phones at their own ends. Compare the hit rates on the camera cards. Mark contacts on one
+line so lone-camera calls can be scored.
+
+---
+
 ## Current roadmap (as of 2026-11-21)
 
 **Now: confirm on court (entries 24-25 are built)**
@@ -707,7 +768,8 @@ FAULT calls against what players saw, and mark contacts on one line for ground t
 * Calibrated uncertainties: with the 2 px floor they match the cameras' disagreement across the
   sidelines and centre line; along the court one camera pair is still 1.6x too tight. Errors
   shared by all cameras are unmeasured until there is ground truth.
-* The veto weighted by camera recall.
+* Score lone-camera calls against marked contacts (entry 26 lets more of them speak when only one
+  good camera covers a spot).
 * Serve FAULTs (built in entry 25, from play state): validate against what players saw.
 
 **Later (from the brief)**
