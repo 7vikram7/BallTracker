@@ -22,13 +22,13 @@ jobs:
     env:
       BT_REQUIRE_ALL: "1"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
-          node-version: "20"
+          node-version: "22"
       - name: System libraries (OpenCV needs libGL)
         run: sudo apt-get update && sudo apt-get install -y libgl1 clang
       - name: Install
@@ -39,19 +39,19 @@ jobs:
         run: node --test mobile/test/core.test.js mobile/test/reducer.test.js
 
   native-flags:
-    runs-on: macos-14   # Apple silicon: arm64, like the phones
+    runs-on: macos-latest   # Apple silicon: arm64, like the phones
     timeout-minutes: 30
     env:
       BT_REQUIRE_ALL: "1"
       SRC: mobile/modules/ball-camera/cpp
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
-          node-version: "20"
+          node-version: "22"
       - name: No fused multiply-add with the iOS flags (podspec OTHER_CPLUSPLUSFLAGS)
         run: |
           FLAGS=$(grep -o "OTHER_CPLUSPLUSFLAGS' => '[^']*" mobile/modules/ball-camera/ios/BallCamera.podspec | sed "s/.*=> '\$(inherited) //")
