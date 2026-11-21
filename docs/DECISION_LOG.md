@@ -733,10 +733,13 @@ build the veto weighted by camera hit rate (proposed in entry 21). Tomorrow both
   edge of its view 1.7 m behind its baseline, is now silent: the Samsung could see that spot,
   catches about half of the bounces there, and reported nothing.
 * Replay as recorded (the Samsung's reports excluded, so the iPhone is the only good camera):
-  9 → 30 spoken. The weak Nothing's silence had been the only thing holding back 21 iPhone-only
-  OUTs, mostly on the left sideline (which the iPhone looks along) and baseline A. **With only
-  one good camera, more lone-camera calls are spoken.** That is the same treatment a spot gets
-  when only one camera can see it at all.
+  more lone-camera calls. **Corrected in entry 29:** the "9 → 30" first written here came from a
+  mixed run (recorded reports, camera geometry from the counterfactual calibrations). Measured
+  with `scripts/replay_counts.py`, as recorded: 9 spoken at defed68 (8 OUT, 1 FAULT), 30 at
+  b715f6a (27 OUT, 3 FAULT). The weak Nothing's silence had been holding back iPhone-only OUTs,
+  mostly on the left sideline (which the iPhone looks along) and baseline A. **With only one good
+  camera, more lone-camera calls are spoken.** That is the same treatment a spot gets when only
+  one camera can see it at all.
 
 **Next.** Tomorrow: two good phones well calibrated (the readiness check and auto-snap help),
 weak phones at their own ends. Compare the hit rates on the camera cards. Mark contacts on one
@@ -904,6 +907,61 @@ hotspot; watch the camera cards for "asked/delivers" fps and clock warnings. The
 
 ---
 
+## 29. Review of round 2: reproducible field numbers, a safer clutter check, a strict-veto switch (2026-11-22)
+
+**Request.** The reviewing agent checked f91483f, 4e119db and b715f6a (response:
+`docs/reviews/2026-11-22-response-to-round-2-review.md`). Build what holds up; no phone app
+changes before the next session.
+
+**Reproducible field numbers.**
+* The best-calibration replay is a counterfactual. Its calibration history is now committed:
+  `data/field/20261121-071625/counterfactual/calibrations.jsonl`, with a README. It was made by
+  `scripts/counterfactual_calibration.py` from local snapshots, which aren't committed.
+* `bt replay --calibrations` and `replay(calibrations=)` use it. `--workers` replays the cameras
+  in parallel.
+* Every field-test-3 figure is now produced by `scripts/replay_counts.py`:
+  * counterfactual: 1 212 decisions, 21 OUT and 6 FAULT spoken; reports iPhone 874, Nothing 152,
+    Samsung 720;
+  * as recorded: 940 decisions, 27 OUT and 3 FAULT spoken; reports iPhone 860, Nothing 152,
+    Samsung 0 (calibration too rough).
+* Same script at b715f6a: 940 / 30 (27 OUT, 3 FAULT), the same calls one by one. At defed68: 940 / 9.
+* Entry 26's "9 → 30" came from a mixed run; it is corrected there.
+
+**Clutter check.**
+* The detector adds about 1.5-2 px to every radius. A far ball of 1 px measured 2.6-2.9 px
+  (ratio up to 3.5), so the pure ratio cap from entry 28 could silence a real far bounce on a
+  low-resolution camera.
+* New rule: not a ball if the blob radius > 3 × the ball's radius there + 2 px.
+* Real detector measurements of 1-1.5 px balls all pass (test); the shirt-sized blob still fails.
+* Field test 3 per camera and distance band (`scripts/ball_size_report.py`): the smallest margin
+  to the limit is 2.6 px, a far Samsung bounce.
+
+**Stalls.**
+* The worker loop's silence flush is a class (`SilenceFlusher`), tested with a simulated clock.
+* A 0.5 s stall after a bounce keeps the track. A 1.2 s stall cuts it, and the cut bounce makes
+  no OUT.
+* With the old 0.4 s flush the test fails. (It replaces a test that only checked a constant.)
+
+**The weak-camera veto.**
+* The owner asked for it on 2026-11-21, so it stays the default.
+* Its 40% threshold was chosen on field test 3, so it's unevaluated until the next session.
+* `bt serve --strict-veto` restores the old rule (any silent camera vetoes). It's logged in the
+  manifest, and replay honours it.
+
+**Verified elsewhere.**
+* CI run 44935813595 passed both jobs: Android NDK and iOS flags with 0 fused multiply-add
+  instructions (controls: 10), arm64 parity, and the wasm built from source.
+* The app builds were checked by hand; the commands are in the response file. App builds are not
+  in CI.
+
+**Flaky test.** `test_live_server_end_to_end_edge_phones` is real-time. Failure rate after this
+change: 10 of 10 passed on an idle Mac. A deterministic version needs a frame-driven server clock (roadmap).
+
+**Not changed, the owner's decisions:** commit 4e119db's message (a rewrite needs a force push);
+the public evolution log and the auto-commit hook.
+
+---
+
 ## Current roadmap (as of 2026-11-21)
 
 **Now: confirm on court (entries 24-25 are built)**
@@ -924,9 +982,10 @@ hotspot; watch the camera cards for "asked/delivers" fps and clock warnings. The
 4. Calibrate every camera with the same side A; confirm the "other end" check on the dashboard.
 
 **Next: accuracy and trust**
-* From the review of defed68 (entries 27-28): frame numbering for jittery timestamps (browser
-  cameras); time-based track ending (built, off) to be decided from marked contacts; the camera
-  model switch in replay by frame number.
+* From the reviews (entries 27-29): frame numbering for jittery timestamps (browser cameras);
+  time-based track ending (built, off) and the weak-camera threshold, to be evaluated on the next
+  session; the camera model switch in replay by frame number; a frame-driven server clock for a
+  deterministic end-to-end test; app builds in CI.
 * Far-half calibration bias under 10 cm (shared-bounce refinement, more cameras).
 * Calibrated uncertainties: with the 2 px floor they match the cameras' disagreement across the
   sidelines and centre line; along the court one camera pair is still 1.6x too tight. Errors

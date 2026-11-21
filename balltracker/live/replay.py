@@ -53,12 +53,18 @@ def read_events(session: Path) -> list[dict]:
     return out
 
 
-def load_session(session: Path | str) -> dict:
+def load_session(session: Path | str, calibrations: Path | str | None = None) -> dict:
+    """``calibrations``: a JSONL file of ``calibrated`` events that replaces the session's own
+    calibration history (a counterfactual: what a newer server's calibration upkeep would have
+    used; see scripts/counterfactual_calibration.py)."""
     session = Path(session)
     if not (session / "court.json").exists():
         raise FileNotFoundError(f"{session} is not a session folder (no court.json)")
     court = CourtSpec.from_dict(json.loads((session / "court.json").read_text()))
     events = read_events(session)
+    if calibrations is not None:
+        sub = [json.loads(line) for line in Path(calibrations).read_text().splitlines() if line.strip()]
+        events = [e for e in events if e.get("type") != "calibrated"] + [e for e in sub if e.get("type") == "calibrated"]
     manifest = json.loads((session / "session.json").read_text()) if (session / "session.json").exists() else None
     last_calib = {e["camera"]: e["camera_model"] for e in events if e.get("type") == "calibrated" and e.get("camera_model")}
     cams = {}
@@ -198,6 +204,14 @@ def camera_reports(name: str, info: dict, court: CourtSpec, detector_overrides: 
     return [BounceEvent.model_validate(o["event"]) for o in out]
 
 
+def _camera_reports_job(args):
+    session, calibrations, name, overrides, max_rms_px = args
+    s = load_session(session, calibrations)
+    info = s["cameras"][name]
+    r = camera_reports(name, info, s["court"], overrides, max_rms_px)
+    return r, {k: info[k] for k in ("gaps", "span", "excluded") if k in info}
+
+
 def _parse_context(ctx: str) -> ServeContext | None:
     if not ctx.startswith("serve:"):
         return None
@@ -206,7 +220,7 @@ def _parse_context(ctx: str) -> ServeContext | None:
 
 
 def judge_reports(court: CourtSpec, cameras: dict, reports: dict[str, list[BounceEvent]], contexts=(),
-                  hold_s: float = 0.6, modes=(), max_rms_px: float | None = None) -> list[dict]:
+                  hold_s: float = 0.6, modes=(), max_rms_px: float | None = None, weak_rate: float = 0.4) -> list[dict]:
     """Feed all cameras' reports to a LiveJudge in (estimated) arrival order."""
     from .server import camera_can_see, camera_view, covered, decision_dict
 
@@ -223,7 +237,8 @@ def judge_reports(court: CourtSpec, cameras: dict, reports: dict[str, list[Bounc
 
     judge = LiveJudge(court, PickleballLineCaller(court, LineCallConfig()), hold_s=hold_s,
                       can_see=lambda n, x, y: camera_can_see(models.get(n), court, x, y),
-                      view=lambda n, x, y: camera_view(models.get(n), x, y), processed=processed)
+                      view=lambda n, x, y: camera_view(models.get(n), x, y), processed=processed,
+                      weak_rate=weak_rate)
     expected = {n for n, m in models.items() if calibration_ready(m, lim)}
     queue = sorted(((ev.t + ARRIVAL_DELAY_S, ev) for evs in reports.values() for ev in evs), key=lambda a: a[0])
     ctx = sorted(contexts)
@@ -244,16 +259,33 @@ def judge_reports(court: CourtSpec, cameras: dict, reports: dict[str, list[Bounc
 
 
 def replay(session: Path | str, detector_overrides: dict | None = None, hold_s: float | None = None,
-           max_rms_px: float | None = None) -> dict:
+           max_rms_px: float | None = None, calibrations: Path | str | None = None, workers: int = 1) -> dict:
     """``max_rms_px``: calibrations rougher than this are not used for calls (default
-    upkeep.MAX_RMS_PX, as live; ``float("inf")`` to replay sessions from before that rule)."""
-    s = load_session(session)
+    upkeep.MAX_RMS_PX, as live; ``float("inf")`` to replay sessions from before that rule).
+    ``calibrations``: replace the calibration history (see ``load_session``). ``workers`` > 1:
+    one process per camera (a 68-minute session: about 20 minutes instead of an hour)."""
+    s = load_session(session, calibrations)
     if hold_s is None:
         hold_s = ((s["manifest"] or {}).get("settings") or {}).get("hold_s", 0.6)
     if detector_overrides is None:
         detector_overrides = ((s["manifest"] or {}).get("settings") or {}).get("detector_overrides") or {}
-    reports = {n: camera_reports(n, info, s["court"], detector_overrides, max_rms_px) for n, info in s["cameras"].items()}
-    decisions = judge_reports(s["court"], s["cameras"], reports, s["contexts"], hold_s, s["modes"], max_rms_px)
+    if workers > 1 and len(s["cameras"]) > 1:
+        from concurrent.futures import ProcessPoolExecutor
+
+        names = list(s["cameras"])
+        with ProcessPoolExecutor(min(workers, len(names))) as ex:
+            done = list(ex.map(_camera_reports_job, [(session, calibrations, n, detector_overrides, max_rms_px)
+                                                     for n in names]))
+        reports = {}
+        for n, (r, extra) in zip(names, done):
+            reports[n] = r
+            s["cameras"][n].update(extra)
+    else:
+        reports = {n: camera_reports(n, info, s["court"], detector_overrides, max_rms_px)
+                   for n, info in s["cameras"].items()}
+    weak_rate = ((s["manifest"] or {}).get("settings") or {}).get("weak_rate", 0.4)  # bt serve --strict-veto: 0
+    decisions = judge_reports(s["court"], s["cameras"], reports, s["contexts"], hold_s, s["modes"], max_rms_px,
+                              weak_rate)
     live = [e for e in s["events"] if e.get("type") == "decision"]
     return {"session": str(s["dir"]), "cameras": {n: {"kind": c["kind"], "calibrated": c["camera"] is not None,
                                                      "reports": len(reports[n]), "excluded": c.get("excluded", 0),

@@ -151,7 +151,8 @@ class CamState:
 class LiveServer:
     def __init__(self, court: CourtSpec, data_dir: Path, *, record: bool = False,
                  detector_overrides: dict | None = None, https_port: int = 8443, http_port: int = 8080,
-                 queue_frames: int = 45, hold_s: float = 0.6, reduce: bool = True, play_mode: str = "match"):
+                 queue_frames: int = 45, hold_s: float = 0.6, reduce: bool = True, play_mode: str = "match",
+                 strict_veto: bool = False):
         self.court = court
         self.data_dir = Path(data_dir)
         # Calibrations belong to a court: a practice court gets its own folder, so a camera
@@ -174,7 +175,9 @@ class LiveServer:
         self.cams: dict[str, CamState] = {}
         self.dashboards: set[web.WebSocketResponse] = set()
         self.judge = LiveJudge(court, PickleballLineCaller(court, LineCallConfig()), hold_s=hold_s, can_see=self.can_see,
-                               view=self.view, processed=self.processed)
+                               view=self.view, processed=self.processed,
+                               # strict: every silent camera vetoes a lone OUT, whatever its hit rate
+                               weak_rate=0.0 if strict_veto else 0.4)
         self.play_mode = "match"
         self.set_play_mode(play_mode, log_it=False)
         self.recent: deque = deque(maxlen=300)
@@ -1208,11 +1211,11 @@ def draw_court(img: np.ndarray, camera: Camera, court: CourtSpec, color=(0, 0, 2
 
 def run(court: CourtSpec, data_dir: Path, *, host: str | None = None, https_port: int = 8443, http_port: int = 8080,
         tls: bool = True, record: bool = False, detector_overrides: dict | None = None,
-        reduce: bool = True, play_mode: str = "match") -> None:
+        reduce: bool = True, play_mode: str = "match", strict_veto: bool = False) -> None:
     """Start the server (blocking)."""
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     srv = LiveServer(court, data_dir, record=record, detector_overrides=detector_overrides, reduce=reduce,
-                     https_port=https_port, http_port=http_port, play_mode=play_mode)
+                     https_port=https_port, http_port=http_port, play_mode=play_mode, strict_veto=strict_veto)
     app = srv.make_app()
     from .certs import ensure_server_cert, lan_addresses, url_host
 

@@ -66,13 +66,15 @@ class LiveConfig:
     # batch): the judge treats the camera as "unknown" there, not as having seen nothing.
     gap_s: float = 0.25
     # Ball-likeness at the bounce (review of defed68, TODO-17: a shirt swaying and bobbing made
-    # bounces in 4 of 40 synthetic trials). The blob's median radius around the bounce, divided
-    # by the radius a ball would have at that spot of the court (from the calibration). Field
-    # test 3 (1 746 bounces, 3 phones): median 0.9-1.0, 99.5% below 1.84-2.18, largest 2.81 (the
-    # detector overestimates small radii by 1-2 px). Above max the track is not a ball: that
-    # removed the shirt bounces at 5.4-6x, not those at 2.3x (size alone can't tell those).
-    # No lower bound by default (min_ball_radius_ratio): 0.5% of real bounces were below 0.26.
+    # bounces in 4 of 40 synthetic trials). The blob's median radius around the bounce is
+    # compared with the radius a ball would have at that spot (from the calibration): not a ball
+    # if larger than max_ball_radius_ratio x that + ball_radius_slack_px. The slack is needed
+    # because the detector adds ~1.5-2 px whatever the size: a far ball of 1 px measured 2.6-2.9
+    # px (ratio up to 3.5) in scripts/measure_centroid_bias.py, so a pure ratio cap silenced real
+    # far bounces (review of round 2). Removes the shirt bounces at 5.4-6x, not those at 2.3x
+    # (size alone can't tell those). No lower bound by default (min_ball_radius_ratio). Entry 29.
     max_ball_radius_ratio: float | None = 3.0
+    ball_radius_slack_px: float = 2.0
     # Detector for cameras that send JPEGs (browser page): "phone" runs the phone's own detector
     # (the C++ core, same as the app) so a browser camera and the app see the same candidates;
     # "mog2" is the Mac's older model, kept to replay sessions recorded with it. MOG2 lost a ball
@@ -291,15 +293,16 @@ class LiveCameraPipeline:
             ev = self.bd.finalise(c, t, uv, sl)  # expensive bootstrap only for bounces we emit
             if ev is None:
                 continue
-            rr = self._radius_ratio(sl, c["tb"], ev.pixel)
-            if rr is not None and ((cfg.max_ball_radius_ratio is not None and rr > cfg.max_ball_radius_ratio)
-                                   or (cfg.min_ball_radius_ratio is not None and rr < cfg.min_ball_radius_ratio)):
+            size = self._ball_size(sl, c["tb"], ev.pixel)
+            rr = None if size is None else size[0] / size[1]
+            if size is not None and not ball_sized(size[0], size[1], cfg):
                 self.diag["not_ball"] = self.diag.get("not_ball", 0) + 1  # sized like a shirt, not a ball
                 continue
             ev = self._with_calibration_uncertainty(ev)
             params = dict(ev.provenance.params or {})
             if rr is not None:
                 params["r_ratio"] = round(rr, 3)
+                params["r_ball_px"] = round(size[1], 2)
             if unsettled:  # cut by a flush less than settle_s after the bounce
                 params["unsettled"] = True
             ev = ev.model_copy(update={"provenance": ev.provenance.model_copy(update={"params": params})})
@@ -310,8 +313,8 @@ class LiveCameraPipeline:
         return out
 
 
-    def _radius_ratio(self, tr: Track, tb: float, px) -> float | None:
-        """Median blob radius within 60 ms of the bounce / a ball's radius at the bounce point."""
+    def _ball_size(self, tr: Track, tb: float, px) -> tuple[float, float] | None:
+        """(median blob radius within 60 ms of the bounce, a ball's radius at the bounce point), px."""
         if self.camera is None or px is None or px[0] is None:
             return None
         rs = [p.radius_px for p in tr.points if abs(p.t - tb) <= 0.06]
@@ -325,7 +328,7 @@ class LiveCameraPipeline:
             return None
         if not np.isfinite(depth) or depth <= 0.2:
             return None
-        return float(np.median(rs)) / (float(self.camera.K[0, 0]) * r / depth)
+        return float(np.median(rs)), float(self.camera.K[0, 0]) * r / depth
 
     def _with_calibration_uncertainty(self, ev: BounceEvent) -> BounceEvent:
         """cov += sigma^2 J J^T, J = d(ground x, y) / d(pixel u, v) at the bounce pixel."""
@@ -364,6 +367,15 @@ def ground_jacobian(camera: Camera, px, z: float, h: float = 0.5) -> np.ndarray 
 # Process entry point
 
 
+def ball_sized(r_blob: float, r_ball: float, cfg: LiveConfig) -> bool:
+    """Is a blob of radius ``r_blob`` (px) plausibly a ball whose radius there is ``r_ball``?"""
+    if cfg.max_ball_radius_ratio is not None and r_blob > cfg.max_ball_radius_ratio * r_ball + cfg.ball_radius_slack_px:
+        return False
+    if cfg.min_ball_radius_ratio is not None and r_blob < cfg.min_ball_radius_ratio * r_ball:
+        return False
+    return True
+
+
 def handle_dets(pipe: LiveCameraPipeline, frames: list, size: tuple[int, int], lag: float) -> list[dict]:
     """One batch of an edge camera's candidates, as the live worker handles it ``lag`` seconds
     after it arrived. Besides the pipeline's output, returns "ctl" messages recording what was
@@ -388,6 +400,27 @@ def handle_dets(pipe: LiveCameraPipeline, frames: list, size: tuple[int, int], l
     if frames:
         out.append({"kind": "progress", "camera": pipe.camera_id, "t": pipe._last_t})
     return out
+
+
+class SilenceFlusher:
+    """When to end open tracks because no frames arrive (a stall, the stream stopping): after
+    ``cfg.flush_after_s`` of silence, once per silence. The worker loop calls ``frames(now)``
+    when frames arrive and ``idle(now)`` while waiting; ``idle`` returns the flush output."""
+
+    def __init__(self, pipe: LiveCameraPipeline):
+        self.pipe = pipe
+        self.last_frame = float("-inf")
+        self.flushed = True
+        self.last_seq = -1
+
+    def frames(self, now: float, last_seq: int) -> None:
+        self.last_frame, self.flushed, self.last_seq = now, False, last_seq
+
+    def idle(self, now: float) -> list[dict]:
+        if self.flushed or now - self.last_frame <= self.pipe.cfg.flush_after_s:
+            return []
+        self.flushed = True
+        return flush_ctl(self.pipe, self.last_seq)
 
 
 def flush_ctl(pipe: LiveCameraPipeline, last_seq: int) -> list[dict]:
@@ -441,14 +474,12 @@ def run_worker(camera_id: str, court_dict: dict, camera_dict: dict | None, in_q,
     n, busy, lat_sum, t_stats = 0, 0.0, 0.0, time.monotonic()
     last_seq = -1
     last_progress = -1e9
-    last_frame = time.monotonic()
-    flushed = True
+    silence = SilenceFlusher(pipe)
     while True:
         msg = decoded.get()
-        if msg is None and not flushed and time.monotonic() - last_frame > cfg.flush_after_s:
-            for o in flush_ctl(pipe, last_seq):  # no frames for a while: finish open tracks now
+        if msg is None:
+            for o in silence.idle(time.monotonic()):  # no frames for a while: finish open tracks now
                 out_q.put(o)
-            flushed = True
         if msg is not None:
             kind = msg[0]
             if kind == "stop":
@@ -476,7 +507,7 @@ def run_worker(camera_id: str, court_dict: dict, camera_dict: dict | None, in_q,
                 b = time.monotonic()
                 busy += b - a
                 lat_sum += b - t_recv
-                last_frame, flushed = b, False
+                silence.frames(b, last_seq)
             elif kind == "dets":
                 # ("dets", [(seq, t_session, [(u, v, r, score), ...]), ...], (w, h), t_recv)
                 _, frames, size, t_recv = msg
@@ -491,7 +522,7 @@ def run_worker(camera_id: str, court_dict: dict, camera_dict: dict | None, in_q,
                 b = time.monotonic()
                 busy += b - a
                 lat_sum += (b - t_recv) * len(frames)
-                last_frame, flushed = b, False
+                silence.frames(b, last_seq)
         while pipe.warnings:
             out_q.put({"kind": "warning", "camera": camera_id, "text": pipe.warnings.pop(0)})
         now = time.monotonic()

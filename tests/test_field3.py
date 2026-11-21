@@ -348,3 +348,14 @@ def test_drift_tracker_follows_a_pan_exactly():
     for k, (u, v) in res["points"].items():
         assert np.hypot(*(np.array([u, v]) - panned.project(np.array([kp[k]]))[0])) < 1.5, k
     assert res["camera"].reprojection_rms_px < 1.5
+
+
+def test_strict_veto_restores_the_old_rule():
+    """bt serve --strict-veto (weak_rate 0): a silent camera vetoes however rarely it catches bounces."""
+    hl = COURT.half_l
+    j = _judge_with_weak_camera()
+    j.weak_rate = 0.0
+    for k in range(20):
+        _feed(j, _plain(1.0 + 3 * k, 0.0, 2.0 if k % 2 else -2.0, ["c1", "c2"]))
+    d = _feed(j, _plain(100.0, 0.5, hl + 0.4, ["c1"]))[0]
+    assert not d.call.announce and d.diagnostics["unconfirmed_by"] == ["weak"]

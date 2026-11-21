@@ -269,7 +269,7 @@ def cmd_serve(a: argparse.Namespace) -> None:
 
     run(_court(a.court, a.court_scale), Path(a.data), host=a.host, https_port=a.https_port, http_port=a.http_port,
         tls=not a.no_tls, record=a.record, detector_overrides=_hsv_overrides(a.ball_hsv),
-        reduce=not a.full_rate, play_mode="drill" if a.drill else "match")
+        reduce=not a.full_rate, play_mode="drill" if a.drill else "match", strict_veto=a.strict_veto)
 
 
 def cmd_fakephone(a: argparse.Namespace) -> None:
@@ -299,7 +299,8 @@ def cmd_fakephone(a: argparse.Namespace) -> None:
 def cmd_replay(a: argparse.Namespace) -> None:
     from .live.replay import format_comparison, replay, save_replay
 
-    res = replay(a.session, detector_overrides=_hsv_overrides(a.ball_hsv) or None)
+    res = replay(a.session, detector_overrides=_hsv_overrides(a.ball_hsv) or None,
+                 calibrations=a.calibrations, workers=a.workers)
     print(format_comparison(res))
     if not a.no_save:
         print(f"saved {save_replay(res)}")
@@ -421,6 +422,9 @@ def main(argv: list[str] | None = None) -> None:
     s.add_argument("--drill", action="store_true",
                    help="drill mode: balls fed from the baseline, no serve detection (default: match, serves recognised)")
     s.add_argument("--ball-hsv", help="ball colour gate Hlo,Slo,Vlo,Hhi,Shi,Vhi")
+    s.add_argument("--strict-veto", action="store_true",
+                   help="any camera that could see a bounce and missed it vetoes a lone camera's OUT, however "
+                        "rarely it catches bounces there (default: cameras catching < 40%% at that distance don't)")
     s.add_argument("--full-rate", action="store_true",
                    help="app phones send every frame (no phone-side reduction): complete data for research")
     s.set_defaults(fn=cmd_serve)
@@ -458,6 +462,9 @@ def main(argv: list[str] | None = None) -> None:
     s.add_argument("session", help="session folder, e.g. data/live/sessions/20261118-101500")
     s.add_argument("--ball-hsv", help="try a different ball colour gate Hlo,Slo,Vlo,Hhi,Shi,Vhi")
     s.add_argument("--no-save", action="store_true", help="don't save the result under <session>/replays/")
+    s.add_argument("--calibrations", help="JSONL of calibrated events replacing the session's own calibration "
+                                          "history (a counterfactual, e.g. data/field/<id>/counterfactual/calibrations.jsonl)")
+    s.add_argument("--workers", type=int, default=1, help="one process per camera (faster on long sessions)")
     s.add_argument("--strict", action="store_true", help="exit 1 if anything differs from the live session")
     s.set_defaults(fn=cmd_replay)
 

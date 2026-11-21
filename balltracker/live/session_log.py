@@ -79,7 +79,7 @@ def build_manifest(srv) -> dict:
         "court": srv.court.to_dict(),
         "settings": {"record": srv.record, "phone_reduction": getattr(srv, "reduce", True), "detector_overrides": srv.detector_overrides, "hold_s": srv.judge.hold_s,
                      "window_s": srv.judge.window_s, "corroborate": srv.judge.corroborate,
-                     "play_mode": getattr(srv, "play_mode", "match")},
+                     "play_mode": getattr(srv, "play_mode", "match"), "weak_rate": srv.judge.weak_rate},
         "summary": None,
     }
 

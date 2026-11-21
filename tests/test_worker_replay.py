@@ -135,8 +135,57 @@ def test_a_bounce_finalised_without_settling_is_marked_and_cannot_make_an_out():
             assert d.diagnostics.get("unsettled")
 
 
-def test_flush_waits_a_full_lookback():
-    assert LiveConfig().flush_after_s >= LiveConfig().lookback_s
+def test_a_short_stall_keeps_the_track_and_a_long_one_cannot_make_an_out():
+    """TODO-18 (review of round 2: the old test only checked a constant). Frames stop 8 frames
+    after the bounce; the worker loop's silence flush runs on a simulated clock."""
+    from balltracker.live.worker import SilenceFlusher
+
+    cam = camera()
+    ts, ps, tb = flight()
+    frames = frames_for(cam, ts, ps)
+    cut = int(np.searchsorted(ts, tb)) + 8  # enough points to find the bounce, short of settle_s
+
+    def run(stall_s):
+        pipe = LiveCameraPipeline("c", COURT, cam, LiveConfig())
+        sil = SilenceFlusher(pipe)
+        out = handle_dets(pipe, frames[:cut], (1280, 720), 0.0)
+        sil.frames(100.0, frames[cut - 1][0])
+        for k in range(1, int(stall_s / 0.05) + 1):  # the loop wakes every 50 ms while nothing arrives
+            out += sil.idle(100.0 + 0.05 * k)
+        out += handle_dets(pipe, frames[cut:], (1280, 720), 0.0)  # frames resume after the stall
+        sil.frames(100.0 + stall_s, frames[-1][0])
+        out += sil.idle(200.0)  # end of the stream
+        return [BounceEvent.model_validate(o["event"]) for o in out if o.get("kind") == "bounce"]
+
+    short = run(0.5)
+    assert len(short) == 1 and not short[0].provenance.params.get("unsettled")  # the track went on
+    long = run(1.2)
+    assert any(e.provenance.params.get("unsettled") for e in long)
+    j = LiveJudge(COURT, hold_s=0.3, play=PlayConfig(enabled=False))
+    for e in long:
+        if e.provenance.params.get("unsettled"):
+            j.add(e.model_copy(update={"position": Point3(x=0.5, y=COURT.half_l + 0.4)}), 1.0)
+    assert not any(d.call.announce for d in j.flush())
+
+
+def test_a_small_far_ball_passes_the_size_check():
+    """Review of round 2: the detector adds 1.5-2 px to small radii, so a pure ratio cap would
+    silence a far ball on a low-resolution camera. Real detector measurements of 1-1.5 px balls
+    (lit top, motion blur) must all pass; a shirt-sized blob must not."""
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+    from measure_centroid_bias import measure
+
+    from balltracker.live.worker import ball_sized
+
+    cfg = LiveConfig()
+    for r in (1.0, 1.5):
+        e = measure(r, 0.5, 12.0, n=140)
+        assert len(e) > 15
+        assert all(ball_sized(r + dr, r, cfg) for dr in e[:, 2]), (r, (e[:, 2] + r).max())
+    assert not ball_sized(16.8, 3.0, cfg)  # the shirt of test_a_shirt_sized_blob_makes_no_bounce
 
 
 def test_a_camera_that_has_not_processed_the_bounce_does_not_veto_it():
