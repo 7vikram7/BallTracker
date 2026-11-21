@@ -743,3 +743,330 @@ I first tried weighting every camera's miss by its hit rate. That went too far: 
 - **Ground truth:** marking a few contacts on one line with chalk would give the first real check of single-camera calls.
 
 The decision log (entry 26) and LIVE_SETUP have the details.
+
+## 2026-11-21 22:20 · request (session 1661f7c3)
+
+> <pasted_content id="5752">
+> # TODO for the other agent (from the review of origin/main defed68)
+> 
+> Full evidence: REVIEW_defed68.md in the same folder. Baseline: 108 tests pass at defed68.
+> Rules for every item:
+> - Write the failing test first (it must fail on defed68), then the fix, then the test passes.
+> - If a golden fixture changes, state in the commit message and the decision log exactly which calls moved, and why.
+> - Do not describe a fix as "bit for bit" or "identical" unless you have diffed the output call by call.
+> - Do not write conversation text, prompts, or personal details into any tracked file.
+> 
+> Priority: P0 = can speak a wrong OUT/FAULT or silence a correct judgement; do first. P1 = affects accuracy or
+> reproducibility; P2 = tests, hygiene, phone-side robustness.
+> 
+> ---
+> 
+> ## P0 · Judge: wrong calls can be spoken
+> 
+> ### TODO-1 · Run the "every camera must agree" check for all multi-camera groups (A1)
+> - Where: `balltracker/live/fusion.py:198`.
+> - Problem: the check runs only when `inflation > 1.0`. Two cameras that disagree, but pass the chi-square test
+>  without inflation, skip it, and the fused call is spoken.
+> - Reasoning: example from the review: cam A says 0.15 m inside the baseline (sd 0.30 m, its own call UNCERTAIN),
+>  cam B says 0.20 m outside (sd 0.03 m, OUT). Fused: OUT, chi2 1.35, inflation 1.0. Spoken OUT. Under the project's
+>  policy (a wrong OUT is worst; silence when unsure) this must be silent. The 2026-11-20 incident was the inflated
+>  case; this is the case next to it.
+> - Fix: run the check for every group with more than one event, not only when inflated:
+>  ```python
+>  if call.announce and len(g.events) > 1:
+>     own = [self.caller.call(e, serve) for e in g.events]
+>     if not all(c.announce and c.result == call.result for c in own):
+>         call = call.model_copy(update={"result": CallResult.UNCERTAIN, "announce": False, "call_text": None})
+>  ```
+> - Test: the example above, two events, must give no announce. Also a case where both cameras agree and an OUT is
+>  still announced (so the fix does not over-silence).
+> - Cost: more silence. That is intended.
+> 
+> ### TODO-2 · Readiness gate must not treat a missing RMS as perfect (A2)
+> - Where: `balltracker/live/upkeep.py:30`.
+> - Problem: `float(camera.reprojection_rms_px or 0.0) <= max_rms_px`. `None` becomes 0.0, which passes.
+> - Reasoning: `Camera.look_at` and any load path without an RMS leave it None. The gate is supposed to be the
+>  guard that stops rough calibrations from calling. Verified: `calibration_ready(Camera.look_at(...))` returns True.
+> - Fix: `return camera is not None and camera.reprojection_rms_px is not None and camera.reprojection_rms_px <= max_rms_px`.
+>  Also reject NaN (`math.isfinite`).
+> - Test: a camera with `reprojection_rms_px=None` is not ready; NaN is not ready; 2.9 px is ready; 3.1 px is not.
+> 
+> ### TODO-3 · Clear the serve context before the secondary-bounce return (A3)
+> - Where: `balltracker/live/fusion.py:177-185`.
+> - Problem: the secondary-bounce `return` (line 183) comes before `serve, self.serve = self.serve, None` (line 185).
+>  A suppressed bounce leaves the operator's serve context armed.
+> - Reasoning: the code comment says the context "applies to the next bounce only". Example: operator arms a serve,
+>  the serve's landing is suppressed as a secondary bounce, the next bounce (a rally return into the kitchen) is
+>  judged against the service area and can be called FAULT.
+> - Fix: move the `serve, self.serve = self.serve, None` line above the secondary check. Decide explicitly whether a
+>  suppressed serve should be consumed (it should).
+> - Test: arm serve, feed a suppressed bounce, then a rally bounce in the kitchen; assert the second has no serve
+>  context and no FAULT.
+> 
+> ### TODO-4 · Second-bounce window must match the play-state window (A4)
+> - Where: `fusion.py:180` uses `caller.cfg.secondary_window_s` (1.2 s); play state allows `PlayConfig.second_max_s` (3.0 s).
+> - Problem: without flight data, play state cannot run. A bounce 2.0 s after the first, and further out, is labelled
+>  "start of play (no flight data)" and announced OUT. Verified with a synthetic case (dt = 2.0 s gives OUT).
+> - Reasoning: the ball was not returned, so this is a second bounce, and calling it OUT is wrong.
+> - Fix: use `play.cfg.second_max_s` as the window. Also: a "no flight data" bounce on the same half within that
+>  window of an eligible bounce is suppressed, not announced.
+> - Test: the dt = 2.0 s case must not announce. A genuine first bounce 4 s after a previous one must still announce.
+> 
+> ### TODO-5 · A late report must not be judged twice (A5)
+> - Where: `fusion.py:162-164` (poll releases a group after `hold_s`; released groups leave `_groups`).
+> - Problem: a late report starts a new group and is judged alone. Verified: two OUT decisions for one bounce.
+>  Whether the second is suppressed depends on noise.
+> - Reasoning: one bounce must have one decision. Without this, the outcome depends on arrival order.
+> - Fix: keep `(t, release_time)` for released groups; drop or log a later report within `window_s` of one.
+> - Test: cam A reports at t = 10.00, cam B at t = 10.02 arrives 0.8 s late. Exactly one decision.
+> 
+> ### TODO-6 · Corroboration veto must cover any camera that could see the spot (A6)
+> - Where: `fusion.py:217-222`; `self._expected` is set only in `poll()` (stale after `flush()`).
+> - Problem: the veto runs only when at least two expected cameras can see the point. A point seen by exactly one
+>  camera is never vetoed.
+> - Reasoning: the veto exists because a camera that can see the spot and reports nothing is evidence against the
+>  bounce. That evidence should apply whenever any camera that could see the spot did not report.
+> - Fix: `missing = seeing - set(b.camera_ids)`; if `missing` is non-empty, downgrade. Set `_expected` in `flush()` too.
+> - Test: two cameras, one reports, the other can see the point and does not: no announce. Also after `flush()`.
+> 
+> ### TODO-7 · Chi-square limit for three or more cameras (A7)
+> - Where: `fusion.py:73`, `limit = CHI2_2DOF_999 * dof / 2`.
+> - Problem: 13.8 is the 99.9 % quantile only for 2 degrees of freedom. For 3 cameras (dof 4) the limit should be about
+>  18.5; the code gives 27.6. Residuals in that band are not inflated, and the agreement check is skipped too (TODO-1).
+> - Fix: `scipy.stats.chi2.ppf(0.999, dof)` (scipy is already a dependency).
+> - Test: a three-camera residual with chi2 = 20 must be inflated.
+> 
+> ---
+> 
+> ## P1 · Accuracy and reproducibility
+> 
+> ### TODO-8 · Serve detector admits non-serves (A8)
+> - Where: `balltracker/live/playstate.py:221` (height bound), `:263` (volley gap), `:242` (service side unknown).
+> - Problems:
+>  (a) height bound starts at -2 m, below the ground; z0 has no uncertainty (vy does);
+>  (b) a far-baseline lob after more than 5 s of volleys can pass as a serve; a kitchen landing that is IN in a rally
+>      becomes FAULT;
+>  (c) with `service_side` None, the target is the whole receiving service area, so a mis-tagged rally ball in the
+>      kitchen can be FAULT.
+> - Reasoning: FAULT is spoken. Field test 3 recognised 76 serves and called 7 FAULTs, and none has been checked
+>  against what players saw. Until that check is done, FAULT should be conservative.
+> - Fix: lower bound about -0.3 m (or use z0's sd); require a shot-plausible traced path; without a known
+>  `service_side`, do not call FAULT (UNCERTAIN instead).
+> - Test: a lob from the far baseline after a 6 s volley gap is not a serve; a serve with unknown side is UNCERTAIN.
+> - Note: after this, keep FAULT marked provisional in the decision log until checked against players.
+> 
+> ### TODO-9 · Per-call RNG for p_out (A9)
+> - Where: `balltracker/sports/pickleball/line_calling.py:83`.
+> - Problem: one RNG shared by all calls. Extra calls (TODO-1 adds some) change later p_out values. Verified: the same
+>  bounce gave 0.9755, then 0.9775.
+> - Fix: seed per call from the bounce, e.g. a stable hash of `(round(t, 3), round(x, 4), round(y, 4))`.
+> - Test: the same bounce gives the same p_out whatever was called before it.
+> 
+> ### TODO-10 · Covariance floor sized from the calibration, not fixed at 2 px (B2)
+> - Where: `balltracker/live/worker.py:238-266` (`calib_sigma_px`, `_with_calibration_uncertainty`), and `:241`
+>  (returns the event unchanged, silently, when J is None).
+> - Problem: a fixed 2 px is not tied to each camera's RMS (allowed 0.6 to 3 px). It is random noise only, so it does not
+>  cover systematic error. It is 0.6 cm at the centre and 20 cm at the far baseline.
+> - Reasoning: the project already knows covariances are about 3x too small on the far half (see TODO-11). A fixed
+>  floor cannot follow that.
+> - Fix: scale the floor with the camera's RMS; add an explicit far-half multiplier; count the silent J-None returns in
+>  diagnostics.
+> - Test: a camera with RMS 3 px gets a larger covariance than one with RMS 0.6 px at the same pixel.
+> - Do this after TODO-11 gives the empirical factor; until then leave the value and add the count.
+> 
+> ### TODO-11 · Position covariance calibrated against measurement (B3) — measurement first
+> - Where: `balltracker/bounce.py` `_finalise` (cov from pixel noise, floor 0.25 px, reprojection jitter); no inflation.
+> - Problem: the velocity floor comment says real errors were 2 to 5x the prediction. Nothing similar is applied to position.
+>  p_out, fusion weights, the single-camera gate and TODO-1's check all use this covariance.
+> - Fix: measure the ratio of observed to predicted position error on marked contacts (or the cross-camera
+>  disagreement on field data), then scale position covariance by k², with an sd floor of a few cm.
+> - Test: the scale factor is a named constant with the measurement cited in the decision log.
+> 
+> ### TODO-12 · Find the far-half bias before fixing calibration (B1) — investigation
+> - Where: not a code change yet.
+> - Problem: the calibration sweeps (300 random poses, lens distortion, principal-point offsets) found no calibration
+>  that passes the RMS gate with far-half error above 0.3 m. The field bias is 0.7 to 1.5 m, which is 7 to 15 px at the
+>  contact pixel.
+> - Reasoning: calibration is not the cause. Suspects: ball-centre detection on a small, blurred far ball, or the
+>  contact-point offset (the contact is one radius below the centre as seen by a low camera).
+> - Action: put a known target (or chalk marks) on the far half, measure the contact pixel's offset against it, and report
+>  the number. Only then change calibration code.
+> - Acceptance: a written measurement in the decision log: pixel bias, metres at the far baseline.
+> 
+> ### TODO-13 · Drift tracking must handle pan and tilt (B4)
+> - Where: `balltracker/geometry/drift.py:24` (docstring claims an image similarity is "exact for a camera that only
+>  rotates"); `_recalibrate` (~line 205) and `check_drift` return the camera without an RMS check.
+> - Problem: a pan or tilt is a homography, not a similarity. Verified: 1° pan gives 2 px median and 49 px max
+>  similarity error; refitting from the moved keypoints gives RMS 5 px at 0.5° pan and 10 px at 1°. Both are gated out,
+>  so the camera is disabled. Tilt stays consistent.
+> - Reasoning: a small pan from a phone should not silently take a camera out of play, and the docstring is wrong.
+> - Fix: fit a homography on feature inliers on the court region; otherwise ask for recalibration. Fix the docstring.
+>  Gate `_recalibrate` output on RMS (TODO-2 logic).
+> - Test: a synthetic 1° pan is followed with RMS under 3 px, or flagged for recalibration, never silently accepted.
+> 
+> ### TODO-14 · Replay must reproduce load-dependent live decisions (C6)
+> - Where: live worker defers checks above 0.3 s (`worker.py:49-53, 163`), drops frames above 1.5 s (`352-353`), flushes
+>  after 0.4 s of silence (`320-323`). `balltracker/live/replay.py` has none of these.
+> - Problem: a live call that depended on machine load cannot be reproduced by `bt replay`, the audit tool.
+> - Fix: log every defer, drop and flush as a session event keyed by frame sequence; replay applies them. Or make
+>  decisions depend only on frame counts.
+> - Test: a session with a recorded drop and a deferral replays to the same decisions as the live run (use a fixture).
+> 
+> ### TODO-15 · FrameClock must not drop frames silently (C3)
+> - Where: `balltracker/live/frameclock.py:57-58, 64-73`; `worker.py:117, 127`.
+> - Problem: at 240 fps with ±4 ms jitter, 12.7 % of frames are skipped (raw timestamp not after the last snapped one).
+>  At 120 fps, 0.8 %. The skip is silent. Snapped timing error is up to 8 ms, which is 2 to 8 cm at 10 m/s.
+> - Fix: count skipped frames in diagnostics; clamp to `last_t + epsilon` instead of dropping; set `max_offgrid` from the
+>  measured jitter, not a fixed 0.45 T.
+> - Test: at 240 fps with ±4 ms jitter, skipped frames are counted and the snapped error bound is asserted.
+> 
+> TODO-16 · Mac and phone background models must agree on a stopped ball (C2)
+> - Where: Mac `balltracker/detection.py:74-102` (MOG2); phone `balltracker/edge_detection.py:185-190`.
+> - Problem: MOG2 last detects a stopped ball 0.10 s after it stops; the phone detector keeps it 1.8 to 3.1 s. At
+>  0.05 px/frame the Mac detects 60 % of frames; the phone, more. Tracks end after 4 misses (about 33 ms at 120 fps),
+>  so bounces can split.
+> - Reasoning: replay on the Mac is not the same as the live run on the phone. This is a parity problem, not only a
+>  tuning problem.
+> - Fix: decide one model. Either slow or freeze the Mac background for stable pixels, or port the phone's model to the
+>  Mac. Count misses in time, not in update calls.
+> - Test: a synthetic stopped ball for 2 s is detected by both detectors for the same frames (parity test).
+> 
+> ###TODO-17 · Clutter must not become a track that makes bounces (C1)
+> - Where: `balltracker/tracking.py:98-189`, `detection.py:95-144`.
+> - Problem: a yellow 30 x 44 px shirt moving sinusoidally passes both gates and forms a 272-point track that survives
+>  finish. Only the radius ratio (≤ 2.5) is checked. Whether this produces a bounce was not traced.
+> - Fix: track-level ball-likeness: median radius near the calibrated ball size, low radius variance, speed plausibility;
+>  required before a track can yield a bounce. Trace whether a shirt's vertical turn can become a bounce, and add that
+>  as a test.
+> - Test: the synthetic shirt track yields no bounce.
+> 
+> TODO-18 · Flush on silence must not truncate tracks (C5)
+> - Where: `worker.py:320-323`; the settle requirement applies only when `final` is false (`worker.py:220`).
+> - Problem: a Wi-Fi stall over 0.4 s ends every track, and a bounce just before the stall can be emitted with the minimum
+>  post-bounce points.
+> - Fix: do not flush on stalls shorter than the lookback. Mark a final bounce without settle as provisional and do not
+>  let it make an OUT.
+> - Test: a bounce followed by a 0.5 s stall and then a short gap is not called OUT from the unsettled bounce.
+> 
+> TODO-19 · Judge must know when a camera's frames were not processed (C7)
+> - Where: `fusion.py` (`can_see` is geometric only).
+> - Problem: a camera with dropped or deferred frames looks like one that saw nothing. That is the safe direction, but late
+>  reports then form a second group (TODO-5).
+> - Fix: per-camera processed coverage over each bounce window; missing coverage is "unknown", not "not seen".
+> - Test: a camera with a processed gap over the bounce window is not treated as having seen nothing.
+> 
+> ---
+> 
+> P2 · Tests, phone robustness, hygiene
+> 
+> TODO-20 · Fix the weak or wrong tests
+> | Where | Fix |
+> |---|---|
+> | `tests/test_golden.py:61-76` (lone OUT) | Assert `announce is False`, or correct the header and comment. The assertion currently accepts an announced OUT. |
+> | `tests/test_golden.py:92-95` | Compare candidates unrounded; the 0.01 px rounding plus atol 0.011 is loose. |
+> | `tests/test_golden.py:110-121` | Guard at 1.2 mm, to match the documented 1 mm bar. The 5 mm guard lets 1-5 mm regressions pass. |
+> | `tests/test_edge.py:72-81` | ROI "reset" test: all-zero ROI passes a broken detector. Add a positive control with a full ROI expecting hits. |
+> | `tests/test_browser_edge.py:140-142` | Comment says ≥ 12 fps, assertion needs 21 fps. Align; the test is flake-prone. |
+> | `tests/test_browser_edge.py:152, 158` | 10 cm match and median under 4 cm are loose; tighten or document. |
+> | `tests/test_field3.py:112-119` | `"implausible" not in str(None)` passes when the gate is None. Assert the gate fired. |
+> | `tests/test_field3.py:122-126` | Name says "until tracks end"; test asserts only checks == 0. Assert deferred checks run and match. |
+> | `tests/test_edge.py` doc refs | `balltracker/edge_detection.py:6` and `mobile/.../ballcore.h:11` cite `tests/test_ballcore_parity.py`, which does not exist. |
+> 
+> TODO-21 · Silent skips must be failures in CI (E)
+> - Where: `tests/test_golden.py:86-89` (C++ leg dropped without compiler), `tests/test_edge.py:119, 141, 149` (node),
+>  `tests/test_browser_edge.py:20` (Chrome).
+> - Fix: `BT_REQUIRE_ALL=1` turns each skip into a failure. CI sets it.
+> 
+> TODO-22 · Build the native code with the real flags in CI (D5)
+> - Where: nothing compiles Swift, Kotlin, JNI, the podspec, CMake or `scripts/build_wasm.sh` in tests. `ballcore.py:55`
+>  builds with its own flags.
+> - Fix: CI job that builds `ballcore.cpp` with the podspec, CMake and wasm flags and checks the golden outputs. Or grep the
+>  built object for fused multiply-add instructions to confirm `-ffp-contract=off` holds.
+> 
+> TODO-23 · Phone reports its real capture rate and clock source (D2, D4)
+> - Where: `mobile/modules/ball-camera/android/.../CaptureEngine.kt:98-100, 169-174, 241`; `CaptureEngine.kt:172` and
+>  `ios/CaptureEngine.swift:199` return `fps: c.fps`; `mobile/src/core/session.js:127-129` (`ts_source: 'app:sensor'`
+>  hard-coded).
+> - Problem: Android's timestamp source is not checked (UNKNOWN makes no guarantee of the uptime clock). The reported fps
+>  is the requested fps: the Samsung asked for 120 and delivered 58 in field test 3.
+> - Fix: send the native timestamp source in `hello`; convert or flag devices that do not match; report measured fps.
+> - Test: the hello message carries the timestamp source; a session where delivered fps is 58 reports 58.
+> 
+> TODO-24 · Android must report native errors (D3)
+> - Where: `CaptureEngine.kt:250` (`.coerceAtLeast(0)`); `ballcore_jni.cpp:60-61` returns -1 on a non-direct buffer.
+> - Problem: a native error shows "running" with zero candidates and no error.
+> - Fix: treat negative counts as errors; emit `onError`.
+> 
+> TODO-25 · iOS: fix the data race and the buffer hold (D6)
+> - Where: `CaptureEngine.swift:72, 338, 341` (battery written on main, read on videoQueue); `:302-307` (JPEG path holds
+>  the camera buffer); `:265-266` (nil synchronizationClock falls back to raw PTS).
+> - Fix: read battery on videoQueue or make it atomic; copy before encoding; fail or flag the nil clock, do not fall back
+>  silently.
+> 
+> TODO-26 · Base64 decoder rejects non-ASCII (D7)
+> - Where: `mobile/src/core/protocol.js:126-127`. A non-ASCII character adds six zero bits silently. No live impact today.
+> - Fix: reject character codes above 127. Test with U+0100 inside a valid string.
+> 
+> TODO-27 · Reducer must not starve tracks in a busy scene (D8)
+> - Where: `mobile/src/core/reducer.js` `_track`. At 16 tracks, new candidates start none; greedy score association lets
+>  clutter take tracks.
+> - Fix: track-level ball-likeness (as TODO-17), or a busy-scene test that shows the ball still gets a track.
+> 
+> TODO-28 · Repo and process hygiene
+> - `docs/evolution/LOG.md`: remove conversation text from new commits; the owner decides whether the log stays public.
+> - Auto-commit hook: the owner decides whether to keep it (`BT_AUTOCOMMIT=0`).
+> - `balltracker/ballcore.py:44-58` writes `build/` into the repo at runtime; move it to a temp or cache directory.
+> - Commit messages must match the diff. `22aef8d` said "identical bounces" but the golden fixture changed.
+> - `Prompt` at the repo root duplicates the brief; keep one copy.
+> - Mobile roadmap status table is dated 2026-11-18; update it.
+> 
+> ### TODO-29 · Lower priority (documented, not urgent)
+> - B5: `refine_with_bounces` (`geometry/crosscal.py:134`) is in-sample, despite the docstring's "held-out bounces" claim.
+>  A
+> </pasted_content id="5752">
+> 
+> Some suggestions by the other agent
+> 
+> Implement the ones you agree with and respond to the others
+
+### 2026-11-21 22:43 · outcome
+
+I worked through the whole list. I built the items that held up and left the rest with reasons. All 122 tests pass, and it's pushed as `ee648f1`. Each fix started from a test that failed before the change. Decision log entry 27 records the outcome of every item.
+
+Restart `bt serve` before tomorrow. The phones don't need reinstalling: the only app-side change, the stricter base64 decoder, takes effect at the next app build.
+
+**Built:**
+- **TODO-1, a fused OUT that one camera disputes:** I built a narrower rule than the one proposed. I measured the "every camera must call OUT" rule first: on field test 3 it silenced 7 of the 27 multi-camera calls. In most of those the doubtful camera either had no real view (a coin flip, p_out 0.47 and 0.49) or also placed the ball outside. Instead, an OUT goes silent when any camera's own view favours IN by 2:1 or more. That catches the reviewer's example and the one real case in the session: the 18.6 cm FAULT where the Samsung put the ball 16.5 cm inside.
+- **TODO-2, 3, 5, 7, 9** as proposed:
+  - a calibration with no measured error isn't used for calls;
+  - a serve set on the dashboard applies only to the next bounce, even if that bounce is suppressed;
+  - a report that arrives after its bounce was judged is dropped, not judged a second time;
+  - the camera-disagreement check uses the right threshold for three or more cameras;
+  - the same bounce always gets the same chance-of-out number, whatever came before it.
+- **TODO-4, a second bounce with no flight data:** a later bounce further out on the same half within 3 s is treated as a second bounce. I kept the judge's general 1.2 s check, because widening it would silence real rally bounces whenever a bounce on the other half was missed.
+- **TODO-8c, a serve with the server's half unknown:** it's only called FAULT if it lands out of the whole receiving half. In the kitchen it stays silent, because it might be a rally ball taken for a serve.
+- **TODO-13, drift tracking:** it now models the camera's movement properly, so it follows a pan exactly. Before, a 3° pan left the court corners 9 px off. A drift correction that fits worse than 3 px is now rejected, and the dashboard asks for a recalibration instead.
+- **TODO-10 and 15:** the two silent cases are now counted in each camera's stats: bounces without the calibration-uncertainty allowance, and dropped frames.
+- **TODO-20, 21, 26, 29:**
+  - tighter golden checks (1.2 mm instead of 5 mm);
+  - a positive control in the search-area test;
+  - corrected comments and references;
+  - `BT_REQUIRE_ALL=1` turns skipped tests into failures;
+  - the base64 decoder rejects invalid characters;
+  - the cross-calibration docstring now says its before/after numbers are measured on the same bounces it was fitted to.
+
+**Effect:**
+- **Field test 3** (best-calibration replay): 21 OUT and 6 FAULT spoken, down from 7 FAULT (the disputed one above).
+- **Golden fixture:** no call moved. Two chance-of-out values shifted slightly from the new per-bounce seeding; the commit message and the log list them.
+
+**Not built:**
+- **TODO-6, veto by any silent camera:** the real gap was fixed in `7d6db25`. The broader rule would let one silent camera overrule two that agree. Even good cameras catch only 50–77% of each other's bounces, so most multi-camera calls would go silent.
+- **TODO-8a, raise the serve height bound to −0.3 m:** that would reject 38% of the recognised serves, including 2 of the FAULTs. The traced height comes out low because the trace ignores air drag.
+- **TODO-10/11, rescale the uncertainty:** the cross-camera check I ran earlier already shows the uncertainty is about right across the lines. A bigger allowance changed no spoken call. Scaling by calibration quality waits for chalk-marked contacts.
+- **TODO-15, the frame-clock fix:** the 12% skip rate at 240 fps is confirmed, and my quick fix didn't help. Numbering frames from timestamps that jittery needs a redesign. It only affects browser cameras, which don't reach 240 fps.
+- **Larger design work:** TODO-12, 14, 16–19, 22 and 27 (far-half bias, replaying load-dependent decisions, detector parity, clutter tracks, stalls, processed coverage, CI). These are real issues and are now on the roadmap.
+- **TODO-23–25, phone app fixes:** these wait until after tomorrow, because they need every phone rebuilt and reinstalled.
+- **TODO-28:**
+  - the C++ build folder is gitignored, so it never reaches the repo;
+  - the public evolution log is your decision;
+  - so are the `Prompt` file and the auto-commit hook.
