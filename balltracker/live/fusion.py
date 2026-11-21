@@ -24,6 +24,20 @@ Corroboration: if two or more calibrated cameras can see the bounce point but
 only one reported a bounce, an OUT is downgraded to UNCERTAIN (silent). A
 single camera can be fooled (a kink from a paddle hit, a dropped frame); a
 second camera that saw the same spot and saw nothing is evidence against it.
+
+Serves: the play state recognises a serve's landing (playstate.py); the bounce is then judged
+against the service court (FAULT) unless the dashboard set the serve context by hand.
+
+Plausibility gates before anything is spoken (field test 3, 2026-11-21: 12 single-camera OUTs,
+several of them ball handling or tracking errors):
+
+* the ball arrived faster than ``PlayConfig.max_shot_mps`` even at the low end of its measured
+  range (2 sd): not a ball in play;
+* "start of play" (a shot-like bounce that is neither a recognised serve nor part of a rally)
+  more than ``far_out_m`` outside the court: ball handling between points;
+* one camera alone, farther than ``single_view_max_m`` from the bounce and looking across the
+  line rather than along it (the in/out direction is then the camera's depth direction, where
+  a few pixels of calibration drift are tens of centimetres).
 """
 
 from __future__ import annotations
@@ -34,7 +48,7 @@ from typing import Callable
 import numpy as np
 
 from ..events import BounceEvent, CallResult, LineCallEvent, Point3, Provenance
-from ..geometry.court import CourtSpec
+from ..geometry.court import CourtSpec, ServiceSide, Side
 from ..sports.pickleball.line_calling import PickleballLineCaller, ServeContext
 from .playstate import PlayConfig, PlayState
 
@@ -103,10 +117,17 @@ class LiveJudge:
     def __init__(self, court: CourtSpec, caller: PickleballLineCaller | None = None,
                  window_s: float = 0.08, hold_s: float = 0.6,
                  can_see: Callable[[str, float, float], bool] | None = None, corroborate: bool = True,
-                 play: PlayConfig | None = None, max_single_camera_std_m: float = 0.15):
+                 play: PlayConfig | None = None, max_single_camera_std_m: float = 0.15,
+                 view: Callable[[str, float, float], tuple[float, np.ndarray] | None] | None = None,
+                 single_view_max_m: float = 8.0, far_out_m: float = 1.0):
         self.court = court
-        # is the ball in play? (see playstate.py; thresholds follow the court's scale)
-        self.play = PlayState(play or PlayConfig.for_scale(getattr(court, "scale", 1.0)))
+        scale = float(getattr(court, "scale", 1.0) or 1.0)
+        # is the ball in play? serve? (see playstate.py; thresholds follow the court's scale)
+        self.play = PlayState(play or PlayConfig.for_scale(scale), court)
+        # view(camera, x, y) -> (distance m, horizontal unit vector camera -> point), or None
+        self.view = view
+        self.single_view_max_m = single_view_max_m * scale
+        self.far_out_m = far_out_m * scale
         # One camera alone may announce only when it measures the bounce well across the line
         # (field test 2: a camera 16 m away along the court gave +-25 cm with possible bias).
         self.max_single_camera_std_m = max_single_camera_std_m
@@ -164,9 +185,15 @@ class LiveJudge:
         serve, self.serve = self.serve, None
         ps = self.play.assess(b, list(g.events), serve is not None) if self.play.cfg.enabled else None
         if ps is not None:
-            diag = {**diag, "play": ps["play"], "h_in_mps": ps["h_in_mps"], "vz_in_mps": ps.get("vz_in_mps")}
+            diag = {**diag, "play": ps["play"], "h_in_mps": ps["h_in_mps"], "vz_in_mps": ps.get("vz_in_mps"),
+                    "h_in_lo_mps": ps.get("h_in_lo_mps")}
             if ps["suppress"]:
                 return Decision(b, None, list(g.events), diag, suppressed=ps["suppress"])
+            if serve is None and ps.get("serve"):
+                sv = ps["serve"]
+                serve = ServeContext(Side(sv["server_side"]),
+                                     ServiceSide(sv["service_side"]) if sv["service_side"] else None)
+                diag = {**diag, "serve": sv}
         call = self.caller.call(b, serve)
         if call.announce and diag.get("inflation", 1.0) > 1.0:
             # The cameras disagree beyond their uncertainties. The inflated covariance can be far
@@ -191,7 +218,31 @@ class LiveJudge:
             seeing = {c for c in self._expected if self.can_see(c, b.position.x, b.position.y)}
             confirmed = seeing & set(b.camera_ids)
             if len(seeing) >= 2 and len(confirmed) < 2:
-                
                 call = call.model_copy(update={"result": CallResult.UNCERTAIN, "announce": False, "call_text": None})
                 diag = {**diag, "unconfirmed_by": sorted(seeing - confirmed)}
+        if call.announce:
+            gate = self._gate(b, call, ps)
+            if gate:
+                call = call.model_copy(update={"result": CallResult.UNCERTAIN, "announce": False, "call_text": None})
+                diag = {**diag, "gate": gate}
+        if call.announce:
+            self.play.end_point()
         return Decision(b, call, list(g.events), diag)
+
+    def _gate(self, b: BounceEvent, call: LineCallEvent, ps: dict | None) -> str | None:
+        """Plausibility checks for an OUT / FAULT about to be spoken (see the module docstring)."""
+        if ps is not None:
+            lo = ps.get("h_in_lo_mps")
+            if lo is not None and lo > self.play.cfg.max_shot_mps:
+                return f"implausible speed (at least {lo:.0f} m/s)"
+            if str(ps.get("play", "")).startswith("start of play") and call.signed_distance_m > self.far_out_m:
+                return "start of play far outside the court (ball handling?)"
+        if len(b.camera_ids) == 1 and self.view is not None:
+            v = self.view(b.camera_ids[0], b.position.x, b.position.y)
+            line = call.nearest_line or ""
+            if v is not None and line:
+                dist, direction = v
+                normal = np.array([1.0, 0.0]) if ("sideline" in line or "centre" in line) else np.array([0.0, 1.0])
+                if dist > self.single_view_max_m and abs(float(np.dot(direction, normal))) > 0.7:
+                    return f"one camera, {dist:.0f} m away, looking across the {line}"
+        return None

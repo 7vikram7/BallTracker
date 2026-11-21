@@ -44,6 +44,7 @@ from ..geometry.camera import CalibrationError, Camera, calibrate_from_points
 from ..geometry.court import CourtSpec, ServiceSide, Side
 from ..geometry.crosscal import BouncePairs, Pair, other_end_proposal, refine_with_bounces, resnap_proposal, visible_keypoints
 from ..sports.pickleball.line_calling import LineCallConfig, PickleballLineCaller, ServeContext
+from .upkeep import MAX_RMS_PX, auto_snap, calibration_ready, coverage
 from .clocksync import ClockSync
 from .fusion import Decision, LiveJudge
 from .protocol import DETS_MAGIC, FRAME_MAGIC, PREVIEW_MAGIC, PROTO_VERSION, magic_of, unpack_detections, unpack_frame
@@ -132,6 +133,9 @@ class CamState:
     cal_points: dict = field(default_factory=dict)  # the points of the last saved calibration
     proposal: dict | None = None  # refined calibration offered for review (geometry/crosscal.py)
     pairs: BouncePairs = field(default_factory=BouncePairs)  # bounces shared with the reference camera
+    drift_ref: object = None  # geometry.drift.DriftReference of the frame the calibration was made on
+    drift: dict = field(default_factory=dict)  # last drift check {"status", "moved_px", "t"}
+    excluded: int = 0  # bounce reports not judged (calibration not ready)
 
     def fps_in(self) -> float:
         a = self.arrivals
@@ -144,7 +148,7 @@ class CamState:
 class LiveServer:
     def __init__(self, court: CourtSpec, data_dir: Path, *, record: bool = False,
                  detector_overrides: dict | None = None, https_port: int = 8443, http_port: int = 8080,
-                 queue_frames: int = 45, hold_s: float = 0.6, reduce: bool = True):
+                 queue_frames: int = 45, hold_s: float = 0.6, reduce: bool = True, play_mode: str = "match"):
         self.court = court
         self.data_dir = Path(data_dir)
         # Calibrations belong to a court: a practice court gets its own folder, so a camera
@@ -166,7 +170,10 @@ class LiveServer:
         self.t0 = time.monotonic()
         self.cams: dict[str, CamState] = {}
         self.dashboards: set[web.WebSocketResponse] = set()
-        self.judge = LiveJudge(court, PickleballLineCaller(court, LineCallConfig()), hold_s=hold_s, can_see=self.can_see)
+        self.judge = LiveJudge(court, PickleballLineCaller(court, LineCallConfig()), hold_s=hold_s, can_see=self.can_see,
+                               view=self.view)
+        self.play_mode = "match"
+        self.set_play_mode(play_mode, log_it=False)
         self.recent: deque = deque(maxlen=300)
         self.events_f = open(self.session_dir / "events.jsonl", "a")
         self.mp = mp.get_context("spawn")
@@ -179,6 +186,8 @@ class LiveServer:
         self._tasks: list[asyncio.Task] = []
         (self.session_dir / "court.json").write_text(json.dumps(court.to_dict(), indent=2))
         self.all_decisions: list[dict] = []  # every decision of the session (recent is bounded)
+        self.coverage: dict = {}  # upkeep.coverage of the calibrated cameras (dashboard map + warnings)
+        self.host: dict = {}  # the Mac's load (session_log.host_load), every 10 s
         self.n_reports = 0
         from .session_log import build_manifest, write_manifest
 
@@ -231,6 +240,9 @@ class LiveServer:
         if camera is not None:
             camera.save(self.calib_dir / f"{cam.name}.json")
             self._snapshot_calibration(cam)
+        else:
+            cam.drift_ref, cam.drift = None, {}
+        self._update_coverage()
         if cam.mode == "edge" and cam.ws is not None and not cam.ws.closed and self._loop is not None:
             self._loop.create_task(self._send_safe(cam.ws, self._calibration_msg(cam)))
         if cam.in_q is not None:
@@ -238,6 +250,37 @@ class LiveServer:
                 cam.in_q.put(("camera", camera.to_dict() if camera else None), timeout=1.0)
             except queue_mod.Full:
                 log.warning("worker queue full; calibration for %s not delivered yet", cam.name)
+
+    def _update_coverage(self) -> None:
+        try:
+            self.coverage = coverage({c.name: c.camera for c in self.cams.values()
+                                      if c.connected and calibration_ready(c.camera)}, self.court)
+        except Exception as e:  # pragma: no cover - never break calibration for the coverage map
+            log.warning("coverage failed: %s", e)
+
+    def _set_drift_reference(self, cam: CamState, jpeg: bytes | None) -> None:
+        """Remember the frame this calibration was made on (drift tracking compares against it)."""
+        import cv2
+
+        from ..geometry.crosscal import visible_keypoints
+        from ..geometry.drift import DriftTracker
+
+        cam.drift_ref, cam.drift = None, {}
+        if jpeg is None or cam.camera is None:
+            return
+        img = cv2.imdecode(np.frombuffer(jpeg, np.uint8), cv2.IMREAD_COLOR)
+        if img is not None and (img.shape[1], img.shape[0]) == tuple(cam.camera.image_size):
+            cam.drift_ref = DriftTracker(img, cam.cal_points or visible_keypoints(cam.camera, self.court))
+
+    def _apply_auto(self, cam: CamState, camera: Camera, points: dict, source: str, extra: dict) -> None:
+        """Use a calibration the server improved by itself (line snap, drift) and log it."""
+        self.set_camera_model(cam, camera)
+        cam.cal_points = {k: list(map(float, v)) for k, v in points.items()}
+        cam.proposal = None
+        cam.pairs = BouncePairs()  # pixels measured with the old calibration no longer match
+        self._log_event({"type": "calibrated", "camera": cam.name, "t": self.now(), "rms_px": camera.reprojection_rms_px,
+                         "source": source, "points": len(points), "image_size": list(camera.image_size),
+                         "clicked": cam.cal_points, "camera_model": camera.to_dict(), **extra})
 
     def _config_msg(self, cam: CamState) -> dict:
         return {"type": "config", "detector": self.edge_detector_config(cam.fps_req), "reduce": {"enabled": cam.reduced}}
@@ -287,11 +330,17 @@ class LiveServer:
         cam = self.cams.get(msg.get("camera", ""))
         if kind == "bounce":
             ev = BounceEvent.model_validate(msg["event"])
-            self.judge.add(ev, self.now())
+            ready = cam is None or calibration_ready(cam.camera)
+            if ready:
+                self.judge.add(ev, self.now())
+            elif cam is not None:
+                cam.excluded += 1
             self.n_reports += 1
             obj = {"type": "report", "camera": msg["camera"], "t": ev.t, "x": ev.position.x, "y": ev.position.y,
                    "std_cm": 100 * float(np.sqrt(max(np.trace(np.array(ev.cov_xy)) / 2, 0))),
                    "conf": ev.confidence, "delay_s": self.now() - ev.t, "event": msg["event"]}
+            if not ready:
+                obj["excluded"] = f"calibration RMS above {MAX_RMS_PX:g} px"
             self._log_event(obj)
             self._broadcast_soon({k: v for k, v in obj.items() if k != "event"})
         elif kind == "ball" and cam is not None:
@@ -321,8 +370,12 @@ class LiveServer:
         cam = self.cams.get(name)
         return cam is not None and camera_can_see(cam.camera, self.court, x, y)
 
+    def view(self, name: str, x: float, y: float):
+        cam = self.cams.get(name)
+        return None if cam is None else camera_view(cam.camera, x, y)
+
     def expected_cameras(self) -> set[str]:
-        return {c.name for c in self.cams.values() if c.connected and c.camera is not None}
+        return {c.name for c in self.cams.values() if c.connected and calibration_ready(c.camera)}
 
     def _decision_obj(self, d: Decision) -> dict:
         return decision_dict(d, self.now() - d.bounce.t)
@@ -347,6 +400,89 @@ class LiveServer:
                             except (ConnectionError, RuntimeError):
                                 pass
 
+    async def _drift_loop(self, every_s: float = 10.0) -> None:
+        """Follow small camera movements; flag big ones (geometry/drift.py)."""
+        import cv2
+
+        from ..geometry.crosscal import visible_keypoints
+        from ..geometry.drift import DriftTracker
+
+        loop = asyncio.get_running_loop()
+        while True:
+            await asyncio.sleep(every_s)
+            for cam in list(self.cams.values()):
+                if not (cam.connected and cam.camera is not None and cam.latest_jpeg):
+                    continue
+                jpeg, camera = cam.latest_jpeg, cam.camera
+                img = cv2.imdecode(np.frombuffer(jpeg, np.uint8), cv2.IMREAD_COLOR)
+                if img is None or (img.shape[1], img.shape[0]) != tuple(camera.image_size):
+                    continue
+                if cam.drift_ref is None:
+                    # A calibration from an earlier session (no reference frame): snap it to the lines
+                    # in case the phone was put back slightly differently, then follow from this frame.
+                    snapped = await loop.run_in_executor(None, auto_snap, img, self.court, camera)
+                    if snapped and cam.camera is camera:
+                        self._apply_auto(cam, snapped["camera"], snapped["points"], "lines (auto, at start)",
+                                         {k: snapped[k] for k in ("moved_px", "fit_px", "lines")})
+                    cam.drift_ref = await loop.run_in_executor(
+                        None, DriftTracker, img, cam.cal_points or visible_keypoints(cam.camera, self.court))
+                    continue
+                try:
+                    res = await loop.run_in_executor(None, cam.drift_ref.check, img, self.court, camera)
+                except Exception as e:  # pragma: no cover - drift tracking never breaks the server
+                    log.warning("drift check of %s failed: %s", cam.name, e)
+                    continue
+                if cam.camera is not camera:
+                    continue  # recalibrated meanwhile
+                prev = cam.drift.get("status")
+                cam.drift = {"status": res["status"], "moved_px": res.get("moved_px"), "t": self.now()}
+                if res["status"] == "moved":
+                    self._apply_auto(cam, res["camera"], res["points"], "drift",
+                                     {"moved_px": res["moved_px"], "total_px": res["total_px"], "how": res["how"],
+                                      "inliers": res["inliers"]})
+                    cam.drift = {"status": "followed", "moved_px": res["total_px"], "t": self.now()}
+                    await self._broadcast(self.state())
+                elif res["status"] in ("big", "lost") and prev != res["status"]:
+                    text = (f"{cam.name} moved {res.get('total_px')} px since it was calibrated: recalibrate it"
+                            if res["status"] == "big" else
+                            f"{cam.name}: can't match the image to its calibration frame (covered, dark, or moved a lot?)")
+                    self._log_event({"type": "warning", "camera": cam.name, "t": self.now(), "text": text,
+                                     "drift": res["status"]})
+                    await self._broadcast({"type": "warning", "camera": cam.name, "text": text})
+
+    def warnings(self) -> list[dict]:
+        """Problems the operator should fix, most important first (dashboard banner)."""
+        out = []
+        for c in sorted(self.cams.values(), key=lambda c: c.name):
+            if not c.connected:
+                continue
+            if c.camera is None:
+                out.append({"level": "warn", "camera": c.name, "text": f"{c.name}: not calibrated, not used for calls"})
+            elif not calibration_ready(c.camera):
+                out.append({"level": "bad", "camera": c.name,
+                            "text": f"{c.name}: calibration too rough ({c.camera.reprojection_rms_px:.1f} px, "
+                                    f"needs ≤ {MAX_RMS_PX:g}): not used for calls. Recalibrate (Snap to lines)."})
+            st = (c.drift or {}).get("status")
+            if st == "big":
+                out.append({"level": "bad", "camera": c.name,
+                            "text": f"{c.name}: moved a lot since calibration. Recalibrate."})
+            elif st == "lost":
+                out.append({"level": "warn", "camera": c.name,
+                            "text": f"{c.name}: image doesn't match its calibration frame (covered? moved?)"})
+            lat = (c.stats or {}).get("latency_ms")
+            if lat is not None and lat > 500:
+                out.append({"level": "warn", "camera": c.name,
+                            "text": f"{c.name}: the Mac is {lat / 1000:.1f} s behind on this camera"})
+            ph = c.phone_stats or {}
+            if ph.get("thermal") in ("serious", "critical"):
+                out.append({"level": "warn", "camera": c.name, "text": f"{c.name}: phone is hot ({ph['thermal']})"})
+            b = ph.get("battery")
+            if isinstance(b, (int, float)) and 0 <= b < 0.2:
+                out.append({"level": "warn", "camera": c.name, "text": f"{c.name}: battery {round(100 * b)}%"})
+        for w in (self.coverage or {}).get("warnings", []):
+            out.append({"level": "info", "camera": None, "text": w})
+        return out
+
     def state(self) -> dict:
         cams = []
         for c in sorted(self.cams.values(), key=lambda c: c.name):
@@ -363,19 +499,23 @@ class LiveServer:
                 "latency_ms": c.stats.get("latency_ms"), "bounces": c.stats.get("bounces"),
                 "worker_alive": bool(c.proc and c.proc.is_alive()), "phone": c.phone_stats,
                 "cands_per_frame": c.stats.get("cands_per_frame"), "max_tracks": c.stats.get("max_tracks"),
-                "mode": c.mode, "app": c.app,
+                "mode": c.mode, "app": c.app, "ready": calibration_ready(c.camera), "drift": c.drift,
+                "excluded": c.excluded, "deferred_frames": c.stats.get("deferred_frames"),
+                "dropped_stale": c.stats.get("dropped_stale"),
             })
         ctx = self.judge.serve
         return {
             "type": "state", "t": self.now(), "cameras": cams, "phone_urls": self.phone_urls,
             "app_urls": self.app_urls, "apk": APK.exists(),
-            "context": "rally" if ctx is None else f"serve:{ctx.server_side.value}:{ctx.service_side.value}",
+            "context": "rally" if ctx is None else f"serve:{ctx.server_side.value}:{ctx.service_side.value if ctx.service_side else '?'}",
             "recording": self.record, "session_dir": str(self.session_dir), "ca_url": self.ca_url,
             "court": {"length": self.court.length, "width": self.court.width},
+            "warnings": self.warnings(), "coverage": self.coverage, "host": self.host, "play_mode": self.play_mode,
+            "ready_cameras": sorted(self.expected_cameras()),
         }
 
     async def _state_loop(self) -> None:
-        from .session_log import camera_health
+        from .session_log import camera_health, host_load
 
         k = 0
         while True:
@@ -385,6 +525,14 @@ class LiveServer:
                 for c in self.cams.values():
                     if c.connected:
                         self._log_event({"type": "camera_stats", "t": self.now(), **camera_health(c)})
+            if k % 20 == 0:  # the Mac's own load every 10 s (ps runs off the event loop)
+                self._host_prev = await asyncio.get_running_loop().run_in_executor(
+                    None, host_load, getattr(self, "_host_prev", None))
+                h = {k2: v for k2, v in self._host_prev.items() if not k2.startswith("_")}
+                h["workers_busy"] = round(sum((c.stats or {}).get("busy") or 0 for c in self.cams.values()
+                                              if c.connected), 2)
+                self.host = h
+                self._log_event({"type": "host_stats", "t": self.now(), **h})
             for c in self.cams.values():
                 if c.connected and c.proc is not None and not c.proc.is_alive():
                     log.error("worker for %s died (exit code %s); restarting", c.name, c.proc.exitcode)
@@ -459,8 +607,11 @@ class LiveServer:
                          "fps": cam.fps_req, "ts_source": cam.ts_source,
                          "calibrated": cam.camera is not None, "regularize_time": regularize,
                          "reduced": cam.reduced,
+                         # the calibration in use from the start (replay follows calibrations over time)
+                         "camera_model": cam.camera.to_dict() if cam.camera else None,
                          "detector_config": self.edge_detector_config(cam.fps_req) if cam.mode == "edge" else None})
         log.info("camera connected: %s (%s) %sx%s", name, cam.device, cam.width, cam.height)
+        self._update_coverage()
 
         async def pinger() -> None:
             k = 0
@@ -513,6 +664,7 @@ class LiveServer:
             if cam.ws is ws:
                 cam.connected, cam.ws = False, None
             self._log_event({"type": "camera_disconnected", "camera": name, "t": self.now()})
+            self._update_coverage()
             log.info("camera disconnected: %s", name)
         return ws
 
@@ -657,9 +809,25 @@ class LiveServer:
             suspects = suspect_points(names, obj, imgp, (int(size[0]), int(size[1])))
         except CalibrationError:
             suspects = []
+        # Snap to the painted lines straight away; use the snap if it fits well (field test 3: a
+        # rough click calibration, RMS 6.9 px, was 50-100 cm off; the snap nobody accepted, 17 cm).
+        snapped = None
+        img = self._cal_image(cam)
+        if img is not None and (img.shape[1], img.shape[0]) == tuple(camera.image_size):
+            snapped = await asyncio.get_running_loop().run_in_executor(None, auto_snap, img, self.court, camera)
+        clicked_rms = camera.reprojection_rms_px
+        if snapped:
+            camera = snapped["camera"]
+            pts = snapped["points"]
+            names = list(pts)
+            obj = np.array([kp[k] for k in names], float)
+            imgp = np.array([pts[k] for k in names], float)
+            errs = np.linalg.norm(camera.project(obj) - imgp, axis=1)
+            suspects = []
         self.set_camera_model(cam, camera)
         cam.cal_points = {k: list(map(float, pts[k])) for k in names}
         cam.proposal = None
+        self._set_drift_reference(cam, cam.cal_jpeg or cam.latest_jpeg)
         # This camera is now the reference for the others: their shared-bounce pairs were measured
         # against older calibrations, so start collecting again; and re-snap every other camera.
         self.reference_cam = cam.name
@@ -668,13 +836,17 @@ class LiveServer:
         asyncio.get_running_loop().create_task(self._refine_others(cam.name))
         pos = camera.position
         self._log_event({"type": "calibrated", "camera": cam.name, "t": self.now(), "rms_px": camera.reprojection_rms_px,
-                         "source": body.get("source", "clicks"),
+                         "source": (body.get("source", "clicks") + " + lines (auto)") if snapped else body.get("source", "clicks"),
+                         "clicked_rms_px": clicked_rms,
+                         "auto_snap": {k: snapped[k] for k in ("moved_px", "fit_px", "lines")} if snapped else None,
                          "points": len(names), "image_size": [int(size[0]), int(size[1])],
                          "clicked": {k: list(map(float, pts[k])) for k in names},
                          "per_point_px": {k: float(e) for k, e in zip(names, errs)}, "camera_model": camera.to_dict(),
                          "suspects": suspects})
         return web.json_response({
-            "ok": True, "rms_px": camera.reprojection_rms_px, "points": len(names),
+            "ok": True, "rms_px": camera.reprojection_rms_px, "points": len(names), "ready": calibration_ready(camera),
+            "max_rms_px": MAX_RMS_PX, "clicked_rms_px": clicked_rms,
+            "auto_snap": {k: snapped[k] for k in ("moved_px", "fit_px", "lines")} if snapped else None,
             "per_point_px": {k: float(e) for k, e in zip(names, errs)}, "suspects": suspects,
             "camera_position_m": [float(x) for x in pos], "focal_px": camera.focal_px,
             "hfov_deg": float(np.degrees(2 * np.arctan(camera.image_size[0] / 2 / camera.focal_px))),
@@ -738,6 +910,13 @@ class LiveServer:
             if cam.name == confirmed or cam.camera is None or cam.latest_jpeg is None:
                 continue
             img = self._cal_image(cam)
+            snapped = await loop.run_in_executor(None, auto_snap, img, self.court, cam.camera)
+            if snapped:
+                self._apply_auto(cam, snapped["camera"], snapped["points"], f"lines (auto, after {confirmed})",
+                                 {k: snapped[k] for k in ("moved_px", "fit_px", "lines")})
+                self._set_drift_reference(cam, cam.cal_jpeg or cam.latest_jpeg)
+                await self._broadcast(self.state())
+                continue
             try:
                 prop = await loop.run_in_executor(None, resnap_proposal, img, self.court, cam.camera)
             except Exception as e:  # pragma: no cover - never break the server for a proposal
@@ -778,6 +957,21 @@ class LiveServer:
                 if prop:
                     cam.proposal = {k: v for k, v in prop.items() if k != "camera"} | {"t": self.now()}
                     self._log_event({"type": "proposal", "camera": cam.name, "t": self.now(), **cam.proposal})
+
+    def set_play_mode(self, mode: str, log_it: bool = True) -> None:
+        """"match": serves are recognised (FAULT calls); "drill": balls fed from the baseline,
+        no serve detection (every feed would look like a serve)."""
+        mode = "drill" if str(mode).lower() == "drill" else "match"
+        self.play_mode = mode
+        self.judge.play.cfg.serve_detection = mode == "match"
+        if log_it:
+            self._log_event({"type": "play_mode", "t": self.now(), "mode": mode})  # replay re-applies these
+
+    async def api_play_mode(self, request: web.Request) -> web.Response:
+        body = await request.json()
+        self.set_play_mode(body.get("mode", "match"))
+        await self._broadcast(self.state())
+        return web.json_response({"ok": True, "mode": self.play_mode})
 
     async def api_context(self, request: web.Request) -> web.Response:
         body = await request.json()
@@ -843,6 +1037,7 @@ class LiveServer:
         app.router.add_post("/api/cameras/{name}/snap", self.api_snap)
         app.router.add_post("/api/cameras/{name}/proposal", self.api_proposal)
         app.router.add_post("/api/context", self.api_context)
+        app.router.add_post("/api/play_mode", self.api_play_mode)
         app.router.add_get("/ca.crt", self.ca_cert)
         app.router.add_get("/qr.svg", self.qr)
         app.router.add_get("/static/{name}", self.static_file)
@@ -855,7 +1050,8 @@ class LiveServer:
     async def _on_startup(self, app: web.Application) -> None:
         self._loop = asyncio.get_running_loop()
         threading.Thread(target=self._reader_thread, name="bt-reader", daemon=True).start()
-        self._tasks = [asyncio.create_task(self._judge_loop()), asyncio.create_task(self._state_loop())]
+        self._tasks = [asyncio.create_task(self._judge_loop()), asyncio.create_task(self._state_loop()),
+                       asyncio.create_task(self._drift_loop())]
 
     async def _on_cleanup(self, app: web.Application) -> None:
         for t in self._tasks:
@@ -909,6 +1105,17 @@ def camera_can_see(camera: Camera | None, court: CourtSpec, x: float, y: float) 
     return 0.03 * w <= u <= 0.97 * w and 0.03 * h <= v <= 0.97 * h
 
 
+def camera_view(camera: Camera | None, x: float, y: float) -> tuple[float, np.ndarray] | None:
+    """Ground distance from the camera to the court point (x, y), and the horizontal unit vector
+    from the camera towards it (for the judge's single-camera viewing-geometry gate)."""
+    if camera is None:
+        return None
+    pos = np.asarray(camera.position, float)
+    d = np.array([x - pos[0], y - pos[1]])
+    n = float(np.hypot(*d))
+    return (n, d / n) if n > 1e-6 else None
+
+
 def decision_dict(d: Decision, latency_s: float | None) -> dict:
     """The logged form of a judge decision (events.jsonl, dashboard, replay)."""
     b, c = d.bounce, d.call
@@ -920,7 +1127,8 @@ def decision_dict(d: Decision, latency_s: float | None) -> dict:
         "unconfirmed_by": d.diagnostics.get("unconfirmed_by"),
         "cameras_disagree": d.diagnostics.get("cameras_disagree"),
         "play": d.diagnostics.get("play"), "h_in_mps": d.diagnostics.get("h_in_mps"),
-        "vz_in_mps": d.diagnostics.get("vz_in_mps"),
+        "vz_in_mps": d.diagnostics.get("vz_in_mps"), "h_in_lo_mps": d.diagnostics.get("h_in_lo_mps"),
+        "serve": d.diagnostics.get("serve"), "gate": d.diagnostics.get("gate"),
     }
     if c is not None:
         obj.update(result=c.result.value, p_out=c.p_out, line=c.nearest_line,
@@ -952,11 +1160,11 @@ def draw_court(img: np.ndarray, camera: Camera, court: CourtSpec, color=(0, 0, 2
 
 def run(court: CourtSpec, data_dir: Path, *, host: str | None = None, https_port: int = 8443, http_port: int = 8080,
         tls: bool = True, record: bool = False, detector_overrides: dict | None = None,
-        reduce: bool = True) -> None:
+        reduce: bool = True, play_mode: str = "match") -> None:
     """Start the server (blocking)."""
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     srv = LiveServer(court, data_dir, record=record, detector_overrides=detector_overrides, reduce=reduce,
-                     https_port=https_port, http_port=http_port)
+                     https_port=https_port, http_port=http_port, play_mode=play_mode)
     app = srv.make_app()
     from .certs import ensure_server_cert, lan_addresses, url_host
 

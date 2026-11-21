@@ -45,6 +45,18 @@ class LiveConfig:
     lookback_s: float = 1.0
     settle_s: float = 0.15
     ball_report_hz: float = 20.0
+    # Backlog guard (field test 3: the worker fell up to 3.4 s behind in clutter, so calls came
+    # seconds late). Behind by more than defer_after_s: skip the periodic bounce checks (tracks are
+    # still followed, and each gets its check when it ends). Behind by more than drop_after_s: drop
+    # the stale frames to catch up.
+    defer_after_s: float = 0.3
+    drop_after_s: float = 1.5
+    # Calibration uncertainty added to every bounce's position covariance: the bounce detector's
+    # covariance only knows pixel noise, but a calibration is good to ~1-2 px (snap residual,
+    # drift between checks). Field test 3: with 0 px, cameras 14 cm apart scored chi2 44 (2 =
+    # consistent) and the judge declared them in disagreement; 2 px made them consistent
+    # (median chi2 0.7-2.8, 5-7% of pairs beyond the 99.9% limit).
+    calib_sigma_px: float = 2.0
 
 
 def _slice_track(tr: Track, t_from: float) -> Track:
@@ -71,6 +83,7 @@ class LiveCameraPipeline:
         self.bounces = 0
         self.diag = {"frames": 0, "cands": 0, "max_tracks": 0, "check_s": 0.0, "checks": 0}
         self.frame_clock: FrameClock | None = None  # snaps jittery (browser) timestamps to the frame grid
+        self.defer_checks = False  # set by the worker loop while it is behind (see LiveConfig)
         self.set_camera(camera)
 
     def set_time_regularization(self, on: bool) -> None:
@@ -80,7 +93,8 @@ class LiveCameraPipeline:
         """Load indicators since the last call (worker stats -> camera_stats in the session log)."""
         d, n = self.diag, max(self.diag["frames"], 1)
         out = {"cands_per_frame": round(d["cands"] / n, 2), "max_tracks": d["max_tracks"],
-               "check_ms_per_s": round(1e3 * d["check_s"], 1), "checks": d["checks"]}
+               "check_ms_per_s": round(1e3 * d["check_s"], 1), "checks": d["checks"],
+               "deferred_frames": d.get("deferred", 0), "dropped_stale": d.get("dropped_stale", 0)}
         self.diag = {"frames": 0, "cands": 0, "max_tracks": 0, "check_s": 0.0, "checks": 0}
         return out
 
@@ -146,7 +160,9 @@ class LiveCameraPipeline:
             ended = self.tracker.pop_finished()
             for tr in ended:
                 out += self._check(tr, t, final=True)
-            if t - self._last_check >= self.cfg.check_every_s:
+            if self.defer_checks:
+                self.diag["deferred"] = self.diag.get("deferred", 0) + 1
+            elif t - self._last_check >= self.cfg.check_every_s:
                 self._last_check = t
                 live = self.tracker.active_tracks()
                 for tr in live:
@@ -208,11 +224,44 @@ class LiveCameraPipeline:
             ev = self.bd.finalise(c, t, uv, sl)  # expensive bootstrap only for bounces we emit
             if ev is None:
                 continue
+            ev = self._with_calibration_uncertainty(ev)
             self._emitted.append(ev.t)
             self._emitted = self._emitted[-50:]
             self.bounces += 1
             out.append({"kind": "bounce", "camera": self.camera_id, "event": ev.model_dump(mode="json")})
         return out
+
+
+    def _with_calibration_uncertainty(self, ev: BounceEvent) -> BounceEvent:
+        """cov += sigma^2 J J^T, J = d(ground x, y) / d(pixel u, v) at the bounce pixel."""
+        sig = self.cfg.calib_sigma_px
+        if not sig or self.camera is None or ev.pixel is None:
+            return ev
+        J = ground_jacobian(self.camera, ev.pixel, self.court.ball_radius)
+        if J is None:
+            return ev
+        C = np.asarray(ev.cov_xy, float) + sig * sig * (J @ J.T)
+        params = dict(ev.provenance.params or {})
+        params["calib_sigma_px"] = sig
+        return ev.model_copy(update={"cov_xy": C.tolist(),
+                                     "provenance": ev.provenance.model_copy(update={"params": params})})
+
+
+def ground_jacobian(camera: Camera, px, z: float, h: float = 0.5) -> np.ndarray | None:
+    """2x2 derivative of the ground point (at height z) seen at pixel px, by central differences."""
+    def ground(u: float, v: float):
+        o, d = camera.rays(np.array([[u, v]], float))
+        o, d = np.asarray(o, float).reshape(-1, 3)[0], np.asarray(d, float).reshape(-1, 3)[0]
+        if abs(d[2]) < 1e-9:
+            return None
+        k = (z - o[2]) / d[2]
+        return None if k <= 0 else (o + k * d)[:2]
+
+    u, v = float(px[0]), float(px[1])
+    pts = [ground(u + h, v), ground(u - h, v), ground(u, v + h), ground(u, v - h)]
+    if any(p is None for p in pts):
+        return None
+    return np.column_stack([(pts[0] - pts[1]) / (2 * h), (pts[2] - pts[3]) / (2 * h)])
 
 
 # --------------------------------------------------------------------------
@@ -299,6 +348,11 @@ def run_worker(camera_id: str, court_dict: dict, camera_dict: dict | None, in_q,
                 # ("dets", [(seq, t_session, [(u, v, r, score), ...]), ...], (w, h), t_recv)
                 _, frames, size, t_recv = msg
                 a = time.monotonic()
+                lag = a - t_recv
+                if lag > cfg.drop_after_s:  # far behind: drop these frames to catch up
+                    pipe.diag["dropped_stale"] = pipe.diag.get("dropped_stale", 0) + len(frames)
+                    frames = []
+                pipe.defer_checks = lag > cfg.defer_after_s
                 for seq, t, cl in frames:
                     cands = [Candidate(u=u, v=v, radius_px=r, score=sc, area_px=float(np.pi * r * r), elongation=1.0)
                              for u, v, r, sc in cl]

@@ -269,7 +269,7 @@ def cmd_serve(a: argparse.Namespace) -> None:
 
     run(_court(a.court, a.court_scale), Path(a.data), host=a.host, https_port=a.https_port, http_port=a.http_port,
         tls=not a.no_tls, record=a.record, detector_overrides=_hsv_overrides(a.ball_hsv),
-        reduce=not a.full_rate)
+        reduce=not a.full_rate, play_mode="drill" if a.drill else "match")
 
 
 def cmd_fakephone(a: argparse.Namespace) -> None:
@@ -418,6 +418,8 @@ def main(argv: list[str] | None = None) -> None:
     s.add_argument("--http-port", type=int, default=8080)
     s.add_argument("--no-tls", action="store_true", help="plain HTTP only (phone cameras will NOT work)")
     s.add_argument("--record", action="store_true", help="save every received frame for later replay")
+    s.add_argument("--drill", action="store_true",
+                   help="drill mode: balls fed from the baseline, no serve detection (default: match, serves recognised)")
     s.add_argument("--ball-hsv", help="ball colour gate Hlo,Slo,Vlo,Hhi,Shi,Vhi")
     s.add_argument("--full-rate", action="store_true",
                    help="app phones send every frame (no phone-side reduction): complete data for research")

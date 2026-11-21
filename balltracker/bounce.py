@@ -159,6 +159,86 @@ def _best_joint(t: np.ndarray, uv: np.ndarray, lo: float, hi: float, n: int = 13
     return best
 
 
+def _pad_splits(t: np.ndarray, uv: np.ndarray, splits: list[tuple[int, int, int]]):
+    """Windows t[lo:hi] - t[s] of each split (s, lo, hi), zero-padded to one length, with a 0/1
+    mask. Padded rows get zero weight, so they change neither normal equations nor residuals."""
+    k = len(splits)
+    m = max(hi - lo for _, lo, hi in splits)
+    T = np.zeros((k, m))
+    UV = np.zeros((k, m, 2))
+    M = np.zeros((k, m))
+    gaps = np.empty(k)
+    for i, (s, lo, hi) in enumerate(splits):
+        L = hi - lo
+        T[i, :L] = t[lo:hi] - t[s]
+        UV[i, :L] = uv[lo:hi]
+        M[i, :L] = 1.0
+        gaps[i] = t[s + 1] - t[s]
+    return T, UV, M, gaps
+
+
+def _masked_fit(A: np.ndarray, UV: np.ndarray, M: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Batched least squares: A (..., m, p) design, UV (k, m, 2), M (k, m) weights; the leading
+    batch axes of A start with k. Returns coef (..., p, 2) and SSE (...)."""
+    extra = A.ndim - 3
+    Mx = M.reshape(M.shape[:1] + (1,) * extra + M.shape[1:])
+    UVx = UV.reshape(UV.shape[:1] + (1,) * extra + UV.shape[1:])
+    A = A * Mx[..., None]
+    AtA = np.einsum("...mi,...mj->...ij", A, A)
+    AtY = np.einsum("...mi,...mc->...ic", A, np.broadcast_to(UVx, A.shape[:-1] + (2,)))
+    coef = np.linalg.solve(AtA, AtY)
+    res = (UVx - A @ coef) * Mx[..., None]
+    return coef, np.einsum("...mc,...mc->...", res, res)
+
+
+def _joint_design(d: np.ndarray) -> np.ndarray:
+    lm = (d < 0).astype(float)
+    rm = 1.0 - lm
+    return np.stack([np.ones_like(d), d * lm, d * d * lm, d * rm, d * d * rm], axis=-1)
+
+
+def _screen_splits(T: np.ndarray, UV: np.ndarray, M: np.ndarray, gaps: np.ndarray,
+                   sigma0_px: float, min_gain: float) -> tuple[np.ndarray, np.ndarray]:
+    """For each padded split window: does one kink at the mid-gap explain it better than one
+    parabola by at least ``min_gain``? Same arithmetic as ``_fit`` + ``_joint_fit`` per split, but
+    batched (the per-call overhead of the tiny solves dominated the live worker's load).
+    Returns (passed mask, SSE of the single parabola). Raises LinAlgError on a degenerate window."""
+    npts = M.sum(axis=1)
+    dof = 2 * npts - 10
+    floor = sigma0_px**2 * 2 * npts
+    _, sse1 = _masked_fit(np.stack([T * T, T, np.ones_like(T)], axis=-1), UV, M)
+    _, sse_mid = _masked_fit(_joint_design(T - 0.5 * gaps[:, None]), UV, M)
+    gain = ((sse1 - sse_mid) / 4) / (np.maximum(sse_mid, floor) / dof)
+    return gain >= min_gain, sse1
+
+
+def _best_joint_many(T: np.ndarray, UV: np.ndarray, M: np.ndarray, gaps: np.ndarray,
+                     n: int = 13, refine: int = 9):
+    """``_best_joint(tw, uvw, 0, gap)`` for every padded window at once: grid of ``n`` contact
+    times in [0, gap], then ``refine`` around the best (out-of-range refine points ignored, and the
+    first minimum wins, exactly as the sequential search). Returns tb (k,), sse (k,), coef (k, 5, 2)."""
+    k = len(gaps)
+    grid = np.linspace(0.0, 1.0, n)[None, :] * gaps[:, None]  # (k, n)
+    coefs, sses = _masked_fit(_joint_design(T[:, None, :] - grid[:, :, None]), UV, M)
+    j = np.argmin(sses, axis=1)
+    rows = np.arange(k)
+    tb, sse, coef = grid[rows, j], sses[rows, j], coefs[rows, j]
+    step = gaps / max(n - 1, 1)
+    # np.linspace(best - step, best + step, refine) per row, with linspace's own arithmetic
+    start, stop = tb - step, tb + step
+    fine = np.arange(refine)[None, :] * ((stop - start) / (refine - 1))[:, None] + start[:, None]
+    fine[:, -1] = stop
+    valid = (fine >= 0.0) & (fine <= gaps[:, None])
+    fcoefs, fsses = _masked_fit(_joint_design(T[:, None, :] - fine[:, :, None]), UV, M)
+    fsses = np.where(valid, fsses, np.inf)
+    jf = np.argmin(fsses, axis=1)
+    better = fsses[rows, jf] < sse
+    tb = np.where(better, fine[rows, jf], tb)
+    coef = np.where(better[:, None, None], fcoefs[rows, jf], coef)
+    sse = np.where(better, fsses[rows, jf], sse)
+    return tb, sse, coef
+
+
 def _best_joint_loop(t: np.ndarray, uv: np.ndarray, lo: float, hi: float, n: int = 13, refine: int = 9):
     """Reference (one fit at a time, with the lstsq fallback for degenerate windows)."""
     best = None
@@ -347,6 +427,7 @@ class BounceDetector:
         r = self.court.ball_radius
 
         cands = []
+        splits = []
         for s in range(cfg.min_side_points - 1, n - cfg.min_side_points):
             if t_from is not None and t[s + 1] < t_from:
                 continue  # already scanned in an earlier (live) pass
@@ -354,23 +435,30 @@ class BounceDetector:
             hi_i = int(np.searchsorted(t, t[s + 1] + cfg.window_s, "right"))
             lo_i = min(lo_i, s + 1 - cfg.min_side_points)
             hi_i = max(hi_i, s + 1 + cfg.min_side_points)
-            if lo_i < 0 or hi_i > n:
+            if lo_i < 0 or hi_i > n or 2 * (hi_i - lo_i) - 10 <= 0:
                 continue
+            splits.append((s, lo_i, hi_i))
+        # Cheap screen at the mid-gap of every split at once (one batched solve instead of two
+        # tiny ones per split: the per-call overhead dominated the live worker's load).
+        if splits:
+            T, UV, M, gaps = _pad_splits(t, uv, splits)
+            try:
+                passed, sse1s = _screen_splits(T, UV, M, gaps, cfg.sigma0_px, cfg.gain_threshold / 3)
+                idx = np.flatnonzero(passed)
+                if len(idx):
+                    tbs, sse2s, coefs = _best_joint_many(T[idx], UV[idx], M[idx], gaps[idx])
+                results = [(splits[i], float(sse1s[i]), float(tb), float(s2), c)
+                           for i, tb, s2, c in zip(idx, tbs, sse2s, coefs)] if len(idx) else []
+            except np.linalg.LinAlgError:
+                results = self._splits_one_by_one(t, uv, splits)
+        else:
+            results = []
+        for (s, lo_i, hi_i), sse1, tb, sse2, coef in results:
             W = slice(lo_i, hi_i)
             t0 = t[s]
-            tw, uvw = t[W] - t0, uv[W]
-            npts = len(tw)
+            npts = hi_i - lo_i
             dof = 2 * npts - 10  # 2 coords x 5 params (shared contact point)
-            if dof <= 0:
-                continue
-            _, _, sse1 = _fit(tw, uvw)
             floor = cfg.sigma0_px**2 * 2 * npts
-            # Cheap screen at the mid-gap before the continuous search.
-            mid = 0.5 * (t[s + 1] - t0)
-            _, sse_mid = _joint_fit(tw, uvw, mid)
-            if ((sse1 - sse_mid) / 4) / (max(sse_mid, floor) / dof) < cfg.gain_threshold / 3:
-                continue
-            tb, sse2, coef = _best_joint(tw, uvw, 0.0, t[s + 1] - t0)
             gain = ((sse1 - sse2) / 4) / (max(sse2, floor) / dof)
             if gain < cfg.gain_threshold:
                 continue
@@ -397,6 +485,23 @@ class BounceDetector:
         kept.sort(key=lambda c: c["tb"])
 
         return [self._refine(c, t, uv) for c in kept], t, uv
+
+    def _splits_one_by_one(self, t: np.ndarray, uv: np.ndarray, splits: list[tuple[int, int, int]]):
+        """Reference path (and fallback for a degenerate window): one split at a time."""
+        cfg = self.cfg
+        out = []
+        for s, lo_i, hi_i in splits:
+            tw, uvw = t[lo_i:hi_i] - t[s], uv[lo_i:hi_i]
+            npts = len(tw)
+            dof = 2 * npts - 10
+            _, _, sse1 = _fit(tw, uvw)
+            floor = cfg.sigma0_px**2 * 2 * npts
+            _, sse_mid = _joint_fit(tw, uvw, 0.5 * (t[s + 1] - t[s]))
+            if ((sse1 - sse_mid) / 4) / (max(sse_mid, floor) / dof) < cfg.gain_threshold / 3:
+                continue
+            tb, sse2, coef = _best_joint(tw, uvw, 0.0, t[s + 1] - t[s])
+            out.append(((s, lo_i, hi_i), sse1, tb, sse2, coef))
+        return out
 
     def finalise(self, c: dict, t: np.ndarray, uv: np.ndarray, track: Track) -> BounceEvent | None:
         return self._finalise(c, t, uv, track)

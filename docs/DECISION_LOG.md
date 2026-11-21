@@ -577,13 +577,95 @@ contacts so the calls can be scored.
 **Next.** Build items 1-5 and replay this session to measure the effect. Then score calls with
 marked contacts.
 
+## 25. Building the field-test-3 fixes; serves; a court screen; can the Mac take another camera? (2026-11-21)
+
+**Request.**
+* Build the fixes proposed in entry 24.
+* Serves were never recognised: a serve should be called out over the centre line.
+* The dashboard should be readable from the corner of the court: the whole screen red for OUT,
+  yellow for a service fault, green otherwise.
+* How loaded was the server during play, and can this Mac take one more camera?
+
+**Analysis and decisions.**
+* **Serves.** In the session, points start the same way: players bounce the ball behind a
+  baseline, there is a short pause, then a ball comes over the net and lands deep in the
+  diagonal service court.
+  * Between points (after a call, a second bounce, ball handling, or 5 s without play, and at
+    least 3 s after the last ball in play), a bounce is a serve if the incoming flight is
+    clearly over the net (|vy| >= 3 m/s, 3 sd).
+  * Traced back along its arc, the ball must be at a plausible contact height at the server's
+    baseline (-2 to 3 m; the session's serves were -0.8 to 1.2 m, a kitchen shot -13 m).
+  * The server must stand within the sideline extensions (0.5 m tolerance).
+  * The ball must not land more than 1 m into the server's own side: serves go cross-court.
+  * The server's half comes from where the trace meets the baseline, or from the pre-serve
+    bounce. Unknown half: judged against the whole service area (kitchen, baseline and sideline
+    faults only).
+  * Replaying the session: 76 serves recognised, 7 FAULTs: four just over the centre line
+    (32, 22, 20, 5 cm), two long, one wide.
+  * In a drill, every feed from the baseline looks like a serve, so there is a Match / Drill
+    mode (`bt serve --drill`, dashboard). The synthetic test rally and the live demo are drills.
+* **Calibration upkeep** (`live/upkeep.py`, `geometry/drift.py`).
+  * A click calibration is snapped to the painted lines automatically when they fit (≤ 1 px,
+    ≥ 4 lines, ≤ 30 px move); so are the other cameras after a calibration, and a calibration
+    loaded from an earlier session on its first frame.
+  * A calibration above 3 px RMS is not used for calls.
+  * Drift tracking compares the camera's picture with its calibration frame every 10 s
+    (similarity transform on the static background). A move of ≥ 3 px median, seen on two checks
+    in a row, is followed (moved points, then line snap); more than 80 px is flagged.
+    Re-referencing after each correction let noise pile up (73 corrections in an hour); always
+    comparing with the calibration frame gave 24, matching the real moves.
+* **Uncertainties made honest.** Every bounce's covariance gains 2 px of calibration
+  uncertainty projected to the ground. Without it, cameras 14 cm apart scored chi2 44 and the
+  judge silenced them as disagreeing (71% of two-camera bounces). With it, 6%.
+* **Gates before speaking.**
+  * The ball's speed lower bound (2 sd) above 25 m/s.
+  * "Start of play" more than 1 m outside the court (ball handling).
+  * One camera alone, more than 8 m away, looking across the line.
+* **Replay of the session.**
+  * As recorded with the new code: the Samsung (6.9 px) is left out, and only iPhone 17 +
+    Nothing call.
+  * With the calibration history the new server would have produced (auto snap at each
+    calibration and drift tracking on the recorded snapshots), camera agreement is:
+    Samsung–iPhone 87 → 14 cm, Samsung–Nothing 164 → 9 cm, iPhone–Nothing 12 → 4 cm.
+  * Calls in that replay: 21 OUT and 7 FAULT spoken. The single-camera OUTs on the far right
+    sideline are gone. There is still no ground truth.
+* **Worker speed.** The bounce search's per-split screening and contact-time search are batched
+  (one solve for all splits); the tracker scores candidates per track at once and predicts by
+  normal equations. Same bounces on the field data, bit for bit. Busiest 2 minutes: iPhone
+  64 → 33% of a core, Samsung 61 → 19%. Over the whole session, per 5 s (typical / p90 /
+  peak): iPhone 0.25 / 0.55 / 0.87 cores (live: 0.46 / 1.00 / saturated 20% of the time),
+  Samsung 0.25 / 0.33 / 0.51, Nothing 0.01 / 0.03 / 0.11. A worker more than 0.3 s behind skips
+  periodic bounce checks; more than 1.5 s behind, it drops stale frames.
+* **One more camera?** Yes. A fourth 120 fps iPhone adds about 0.25 cores typically and 0.55 at
+  p90, so all four need about 1.5 cores at p90 of 4. No single camera reaches a whole core.
+  Conditions: close heavy apps (the editor), keep the Mac on power, and use a separate hotspot
+  phone.
+* **Load during play (live).** The Mac as a whole was not overloaded: the camera workers used
+  0.9 cores typically and 1.9 at most, of 4 cores / 8 threads. But the iPhone's worker was
+  saturated 20% of the time and more than 0.5 s behind 12% of the time. A code editor's window
+  used 1.4 cores while idle in the background. The server now logs the Mac's load every 10 s
+  (`host_stats`), and the dashboard shows it.
+* **Dashboard.**
+  * Court screen (button, key B, `?court`): the whole window is green IN / red OUT / yellow
+    FAULT (held 6 s), grey when not ready, with camera status at the bottom.
+  * Setup view: a status pill, a warnings bar (rough calibration, camera moved, hot phone,
+    processing behind, coverage gaps), a last-call tile, a coverage-gaps map, the Mac's load,
+    and serve / gate reasons in the calls table.
+* **Replay** now follows the calibration history over time (connect-time model, every
+  `calibrated` event), leaves out bounces from a camera whose calibration was too rough at the
+  time, and applies the match/drill mode.
+
+**Next.** On court: Match mode, Court screen, one phone as a non-filming hotspot. Then check the
+FAULT calls against what players saw, and mark contacts on one line for ground truth.
+
 ---
 
 ## Current roadmap (as of 2026-11-21)
 
-**Now: make the full-court calls trustworthy (from field test 3)**
-* Auto line snap, drift tracking, a coverage map, plausibility gates for OUT, and a cap on worker
-  backlog (entry 24). Replay `data/field/20261121-071625` before and after.
+**Now: confirm on court (entries 24-25 are built)**
+* Next session in Match mode with the Court screen: check the serve FAULT calls against what the
+  players saw; watch the coverage map when placing cameras (1-1.5 m beyond each sideline).
+* Ground truth: mark contacts on one line (chalk drill) during the session.
 
 **Then: validate on real courts**
 1. Mini-court session with marked contacts (20-30 bounces per line, 1-5 cm in and out). This

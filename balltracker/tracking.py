@@ -50,9 +50,15 @@ class Track:
             return np.array([p[-1].u, p[-1].v])
         ts, uv = self._recent(window)
         deg = 2 if len(ts) >= 5 else 1
-        coef = np.polyfit(ts, uv, deg)
         dt = t - p[-1].t
-        return np.array([np.polyval(coef[:, 0], dt), np.polyval(coef[:, 1], dt)])
+        # Least-squares polynomial via the normal equations (np.polyfit's SVD and checks cost more
+        # than the tiny fit itself; this runs for every track on every frame).
+        A = np.vander(ts, deg + 1)
+        try:
+            coef = np.linalg.solve(A.T @ A, A.T @ uv)
+        except np.linalg.LinAlgError:
+            coef = np.polyfit(ts, uv, deg)
+        return np.vander(np.array([dt]), deg + 1)[0] @ coef
 
     def speed_px_s(self, window: int = 4) -> float:
         p = self.points
@@ -104,28 +110,28 @@ class BallTracker:
         tracks = self._active
         if tracks and cands:
             cost = np.full((len(tracks), len(cands)), 1e6)
+            cu = np.array([c.u for c in cands])
+            cv = np.array([c.v for c in cands])
+            cr = np.maximum(np.array([c.radius_px for c in cands]), 1.0)
+            cs = np.array([c.score for c in cands])
             for i, tr in enumerate(tracks):
                 pred = tr.predict(t)
                 gap = t - tr.points[-1].t
-                base = max(cfg.gate_base_px, cfg.gate_radius_factor * tr.radius_px())
+                r_tr = tr.radius_px()
+                base = max(cfg.gate_base_px, cfg.gate_radius_factor * r_tr)
                 if len(tr.points) == 1:
-                    gate = base + cfg.init_gate_radius_factor * max(tr.radius_px(), 3.0)
+                    gate = base + cfg.init_gate_radius_factor * max(r_tr, 3.0)
                 else:
                     gate = base + cfg.gate_speed_factor * tr.speed_px_s() * max(gap, dt)
-                rt = max(tr.radius_px(), 1.0)
-                for j, c in enumerate(cands):
-                    d = float(np.hypot(c.u - pred[0], c.v - pred[1]))
-                    ratio = max(c.radius_px, 1.0) / rt
-                    if d > gate or max(ratio, 1 / ratio) > cfg.max_radius_ratio:
-                        continue
+                d = np.hypot(cu - pred[0], cv - pred[1])
+                ratio = cr / max(r_tr, 1.0)
+                ok = (d <= gate) & (np.maximum(ratio, 1 / ratio) <= cfg.max_radius_ratio)
+                if ok.any():
                     # Normalised distance + size consistency; small bonus for
                     # established tracks so new clutter tracks don't steal the ball.
-                    cost[i, j] = (
-                        d / gate
-                        + cfg.radius_cost * abs(np.log(ratio))
-                        - 0.1 * c.score
+                    c_i = d / gate + cfg.radius_cost * np.abs(np.log(ratio)) - 0.1 * cs \
                         - 0.1 * min(len(tr.points), 10) / 10
-                    )
+                    cost[i, ok] = c_i[ok]
             rows, cols = linear_sum_assignment(cost)
             assigned_t, assigned_c = set(), set()
             for r, c in zip(rows, cols):

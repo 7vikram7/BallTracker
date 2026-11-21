@@ -54,7 +54,9 @@ def make_rally(tmp: Path) -> None:
     for cam in (p for p in sd.iterdir() if p.is_dir() and (p / "dets.jsonl").exists()):
         (dst / cam.name).mkdir()
         shutil.copy(cam / "dets.jsonl", dst / cam.name / "dets.jsonl")
-    (dst / "events.jsonl").write_text("")  # no serve contexts in this rally
+    # No serve contexts; every ball is fed from behind baseline A, i.e. a drill (in match mode the
+    # first feed would be judged as a serve).
+    (dst / "events.jsonl").write_text(json.dumps({"type": "play_mode", "t": 0.0, "mode": "drill"}) + "\n")
     shift = r["clip_to_session_s"]
     truth = [{"t": row["t"] + shift, "x": row["x"], "y": row["y"], "truth": row["truth"],
               "truth_dist_cm": row["truth_dist_cm"], "first": row["first"]} for row in r["rows"]]

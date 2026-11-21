@@ -42,9 +42,6 @@
   th, td { text-align:left; padding:5px 6px; border-bottom:1px solid var(--line); white-space:nowrap; }
   th { color:var(--mut); font-weight:600; }
   td.res-OUT { color:var(--bad); font-weight:700; } td.res-IN { color:var(--ok); } td.res-UNCERTAIN { color:var(--warn); }
-  #banner { position:fixed; left:50%; top:22%; transform:translate(-50%, -50%) scale(.9); font-size:120px; font-weight:900; color:#fff; background:var(--bad);
-            padding:10px 48px; border-radius:24px; opacity:0; transition:all .2s; pointer-events:none; z-index:20; }
-  #banner.show { opacity:1; transform:translate(-50%, -50%) scale(1); }
   /* calibration */
   #cal { position:fixed; inset:0; background:#000d; display:none; z-index:30; }
   #cal .wrap { position:absolute; inset:14px; display:grid; grid-template-columns:1fr 300px; gap:12px; }
@@ -56,21 +53,61 @@
   #cal .kp.cur { background:var(--acc); color:#fff; }
   #cal .kp.done::after { content:"✓"; } #cal .kp.skip::after { content:"–"; color:var(--mut); }
   #calres { font-size:13px; margin-top:8px; white-space:pre-wrap; }
+  /* status pill, warnings, last call */
+  .pill { display:inline-flex; align-items:center; gap:6px; padding:4px 10px; border-radius:999px; font-weight:650; font-size:13px; background:var(--line); }
+  .pill.ok { background:#dcfce7; color:#166534; } .pill.bad { background:#fee2e2; color:#991b1b; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .pill.ok { background:#14532d; color:#bbf7d0; } :root:not([data-theme="light"]) .pill.bad { background:#7f1d1d; color:#fecaca; } }
+  header .spacer { flex:1; }
+  details.ovr summary { cursor:pointer; color:var(--mut); font-size:13px; list-style:none; }
+  details.ovr[open] { display:flex; gap:6px; align-items:center; }
+  #warns { padding:0 16px; }
+  #warns:empty { display:none; }
+  #warns div { margin-top:8px; padding:7px 12px; border-radius:8px; font-size:13.5px; border-left:4px solid var(--warn); background:var(--card); }
+  #warns div.bad { border-color:var(--bad); font-weight:600; } #warns div.info { border-color:var(--acc); }
+  #last { display:flex; align-items:center; gap:16px; padding:14px 16px; border-radius:12px; color:#fff; background:#334155; margin-bottom:16px; }
+  #last .word { font-size:44px; font-weight:900; letter-spacing:.02em; min-width:150px; }
+  #last.IN { background:var(--ok); } #last.OUT { background:var(--bad); } #last.FAULT { background:#eab308; color:#1c1917; }
+  #last .det { font-size:14px; opacity:.95; }
+  #host { font-size:12.5px; color:var(--mut); margin-top:8px; }
+  td.res-FAULT { color:#ca8a04; font-weight:700; }
+  .badge { font-size:11.5px; font-weight:650; padding:1px 7px; border-radius:6px; margin-left:6px; background:var(--line); color:var(--mut); }
+  .badge.bad { background:#fee2e2; color:#991b1b; } .badge.ok { background:#dcfce7; color:#166534; }
+  /* court screen: the whole window is the call, readable across the court */
+  #big { position:fixed; inset:0; z-index:40; display:none; flex-direction:column; align-items:center; justify-content:center;
+         background:#16a34a; color:#fff; transition:background .15s; user-select:none; cursor:default; }
+  #big.show { display:flex; }
+  #big.OUT { background:#dc2626; } #big.FAULT { background:#facc15; color:#1c1917; } #big.NOTREADY { background:#374151; }
+  #big .word { font-size:min(30vw, 46vh); font-weight:900; line-height:1; letter-spacing:.02em; white-space:nowrap; }
+  #big .det { font-size:min(4.5vw, 7vh); font-weight:650; margin-top:2vh; opacity:.92; text-align:center; padding:0 4vw; }
+  #big .foot { position:absolute; left:0; right:0; bottom:0; display:flex; gap:18px; justify-content:center; flex-wrap:wrap;
+               padding:14px; font-size:min(2.2vw, 3.2vh); font-weight:600; background:rgba(0,0,0,.18); }
+  #big .foot .cam { display:inline-flex; align-items:center; gap:8px; }
+  #big .foot .cam i { width:.8em; height:.8em; border-radius:50%; background:#ef4444; display:inline-block; box-shadow:0 0 0 2px rgba(255,255,255,.6); }
+  #big .foot .cam i.ok { background:#22c55e; } #big .foot .cam i.warn { background:#f59e0b; }
+  #big .exit { position:absolute; top:12px; right:16px; font-size:14px; opacity:.6; }
+  #big .flash { animation:flash .5s ease-out; }
+  @keyframes flash { from { transform:scale(1.12); } to { transform:scale(1); } }
 </style>
 </head>
 <body>
 <header>
   <h1>BallTracker Live</h1>
+  <span class="pill" id="ready">–</span>
   <span class="mut" id="clock">–</span>
-  <span class="grp"><button id="sound">🔇 Enable sound</button><button id="test">Test call</button></span>
-  <span class="grp" title="Serve calls need to know who serves from where. Applies to the next bounce only, then back to rally.">
-    <span class="mut">Next bounce:</span>
-    <button data-ctx="rally" class="on">Rally</button>
+  <span class="spacer"></span>
+  <span class="grp" title="Match: serves are recognised and judged against the service court (FAULT). Drill: balls fed from the baseline, no serve calls.">
+    <button data-mode="match">Match</button><button data-mode="drill">Drill</button></span>
+  <button class="pri" id="bigb" title="Full-window call display for the court: green IN, red OUT, yellow FAULT (key B; Esc to leave)">Court screen</button>
+  <span class="grp"><button id="sound">🔇 Enable sound</button><button id="test">Test</button></span>
+  <details class="ovr" title="Serves are recognised automatically. Use these only to force how the next bounce is judged.">
+    <summary>Override ▸</summary>
+    <button data-ctx="rally" class="on">Auto</button>
     <button data-ctx="serve:A:right">Serve A·right</button><button data-ctx="serve:A:left">Serve A·left</button>
     <button data-ctx="serve:B:right">Serve B·right</button><button data-ctx="serve:B:left">Serve B·left</button>
-  </span>
+  </details>
   <span class="mut" id="conn">connecting…</span>
 </header>
+<div id="warns"></div>
 <main>
   <div>
     <section>
@@ -105,18 +142,20 @@
     </section>
   </div>
   <div>
+    <div id="last"><span class="word">–</span><span class="det">No calls yet.</span></div>
     <section>
-      <h2>Court</h2>
+      <h2 style="display:flex;justify-content:space-between;align-items:center">Court <label class="mut" style="text-transform:none;letter-spacing:0;font-weight:400"><input type="checkbox" id="covb"> coverage gaps <span style="color:#f59e0b">■</span> one camera <span style="color:#ef4444">■</span> none</label></h2>
       <div id="courtwrap"></div>
-      <p class="mut" style="margin:6px 0 0">Side A at the bottom. Circles: fused bounces (red OUT, green IN, amber unsure; size = 2σ). Small dots: single-camera reports.</p>
+      <p class="mut" style="margin:6px 0 0" id="courtnote">Side A at the bottom. Circles: fused bounces (red OUT, yellow FAULT, green IN, grey unsure; size = 2σ). Small dots: single-camera reports.</p>
+      <div id="host"></div>
     </section>
     <section style="margin-top:16px">
       <h2>Calls</h2>
-      <table><thead><tr><th>t (s)</th><th>call</th><th>p(out)</th><th>line</th><th>dist</th><th>cams</th><th>latency</th></tr></thead><tbody id="log"></tbody></table>
+      <table><thead><tr><th>t (s)</th><th>call</th><th>play</th><th>line</th><th>dist</th><th>cams</th><th>latency</th></tr></thead><tbody id="log"></tbody></table>
     </section>
   </div>
 </main>
-<div id="banner">OUT</div>
+<div id="big"><span class="exit">Esc · B</span><div class="word">–</div><div class="det"></div><div class="foot"></div></div>
 
 <div id="cal">
   <div class="wrap">
@@ -140,6 +179,7 @@
 <script>
 "use strict";
 const $ = (id) => document.getElementById(id);
+window.addEventListener("error", (e) => { const c = $("conn"); if (c) c.textContent = "page error: " + e.message + " (line " + e.lineno + ")"; });
 let state = null, court = null, sound = false, ws = null;
 const thumbs = {}, balls = {}, decisions = [], reports = [];
 
@@ -153,8 +193,70 @@ function say(text) {
   if (!sound || !("speechSynthesis" in window)) return;
   const u = new SpeechSynthesisUtterance(text); u.rate = 1.05; u.pitch = 1.0; speechSynthesis.cancel(); speechSynthesis.speak(u);
 }
-function banner(text) { const b = $("banner"); b.textContent = text; b.classList.add("show"); setTimeout(() => b.classList.remove("show"), 1400); }
-$("test").onclick = () => { banner("OUT"); say("Out"); };
+$("test").onclick = () => { showCall({ result: "OUT", announce: true, text: "OUT", line: "sideline_right", distance_cm: 12 }, true); say("Out"); };
+
+// ---------------------------------------------------------------- court screen
+// The whole window is the call, readable from across the court: green = in play / IN,
+// red = OUT, yellow = FAULT (held HOLD_MS), grey = not ready (no calibrated camera).
+const HOLD_MS = 6000;
+let bigOn = false, holdUntil = 0, lastCall = null;
+function setBig(on) {
+  bigOn = on; $("big").classList.toggle("show", on);
+  try { localStorage.setItem("bt-big", on ? "1" : "0"); } catch (e) {}
+  if (on && document.documentElement.requestFullscreen && !document.fullscreenElement) document.documentElement.requestFullscreen().catch(() => {});
+  if (!on && document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  renderBig();
+}
+$("bigb").onclick = () => setBig(true);
+$("big").onclick = () => { if (!sound) $("sound").click(); };  // a tap on the court screen also enables sound
+document.addEventListener("keydown", (e) => {
+  if ($("cal").style.display === "block") return;
+  if (e.key === "Escape" && bigOn) setBig(false);
+  else if (e.key === "b" || e.key === "B") setBig(!bigOn);
+});
+const LINE_NAMES = { baseline_A: "baseline A", baseline_B: "baseline B", sideline_left: "left sideline", sideline_right: "right sideline",
+  kitchen_A: "kitchen line A", kitchen_B: "kitchen line B", centreline_A: "centre line", centreline_B: "centre line" };
+function callWord(d) { return d.announce ? (d.text || "OUT") : d.result === "IN" ? "IN" : null; }
+function callDetail(d) {
+  const line = LINE_NAMES[d.line] || d.line || "";
+  const dist = d.distance_cm != null ? `${Math.abs(d.distance_cm).toFixed(0)} cm ${d.distance_cm > 0 ? "out" : "in"}` : "";
+  const what = d.play === "serve" || d.context === "serve" ? "Serve" : "";
+  return [what, line, dist].filter(Boolean).join(" · ");
+}
+function showCall(d, live) {
+  const w = callWord(d); if (!w) return;
+  lastCall = { ...d, word: w, at: Date.now() };
+  if (w !== "IN") holdUntil = Date.now() + HOLD_MS;
+  else if (Date.now() < holdUntil) return renderLast();  // keep a fresh OUT/FAULT on screen
+  renderLast(); renderBig(live);
+}
+function renderLast() {
+  const L = $("last"), d = lastCall;
+  if (!d) return;
+  L.className = d.word === "IN" ? "IN" : d.word === "FAULT" ? "FAULT" : "OUT";
+  L.querySelector(".word").textContent = d.word;
+  L.querySelector(".det").textContent = `${callDetail(d)}${d.t != null ? " · at " + d.t.toFixed(0) + " s" : ""}`;
+}
+function renderBig(flash) {
+  if (!bigOn) return;
+  const B = $("big"), ready = (state?.ready_cameras || []).length;
+  let cls = "", word = "IN PLAY", det = "";
+  if (!ready) { cls = "NOTREADY"; word = "NOT READY"; det = state ? "No calibrated camera connected" : "Connecting to the server…"; }
+  else if (lastCall && Date.now() < holdUntil && lastCall.word !== "IN") { cls = lastCall.word === "FAULT" ? "FAULT" : "OUT"; word = lastCall.word; det = callDetail(lastCall); }
+  else if (lastCall) { word = "IN"; det = callDetail(lastCall); }
+  B.className = "show " + cls;
+  const W = B.querySelector(".word");
+  if (W.textContent !== word || flash) { W.textContent = word; W.classList.remove("flash"); void W.offsetWidth; W.classList.add("flash"); }
+  W.style.fontSize = `min(${(150 / Math.max(word.length, 3)).toFixed(1)}vw, 46vh)`;  // the word always fits on one line
+  B.querySelector(".det").textContent = det;
+  const cams = (state?.cameras || []).filter((c) => c.connected || c.calibrated);
+  B.querySelector(".foot").innerHTML = cams.map((c) => {
+    const ok = c.connected && c.ready && !(c.drift && c.drift.status === "big");
+    return `<span class="cam"><i class="${ok ? "ok" : c.connected ? "warn" : ""}"></i>${c.name}</span>`;
+  }).join("") + (state && state.warnings && state.warnings.filter((w) => w.level !== "info").length ? `<span>⚠︎ ${state.warnings.filter((w) => w.level !== "info").length} to check on the dashboard</span>` : "");
+}
+setInterval(() => renderBig(false), 1000);
+try { if (/[?&]court\b/.test(location.search) || localStorage.getItem("bt-big") === "1") setTimeout(() => setBig(true), 300); } catch (e) {}
 
 // ---------------------------------------------------------------- context
 document.querySelectorAll("[data-ctx]").forEach((b) => b.onclick = async () => {
@@ -162,6 +264,9 @@ document.querySelectorAll("[data-ctx]").forEach((b) => b.onclick = async () => {
   if (c.startsWith("serve")) { const [, s, h] = c.split(":"); body = { mode: "serve", server_side: s, service_side: h }; }
   await fetch("/api/context", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 });
+document.querySelectorAll("[data-mode]").forEach((b) => b.onclick = () =>
+  fetch("/api/play_mode", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode: b.dataset.mode }) }));
+function showMode(mode) { document.querySelectorAll("[data-mode]").forEach((b) => b.classList.toggle("on", b.dataset.mode === mode)); }
 function showContext(ctx) { document.querySelectorAll("[data-ctx]").forEach((b) => b.classList.toggle("on", b.dataset.ctx === ctx)); }
 
 // ---------------------------------------------------------------- court svg
@@ -184,10 +289,19 @@ function courtSvg(c, opts = {}) {
 function renderCourt() {
   if (!court) return;
   const C = courtSvg(court, { scale: 40 });
+  const cov = state && state.coverage && state.coverage.grid;
+  if ($("covb").checked && cov) {
+    // only the gaps: red = no camera, amber = one camera (an OUT there rests on one camera)
+    cov.counts.forEach((row, j) => row.forEach((n, i) => {
+      if (n >= 2) return;
+      const x = cov.x0 + i * cov.cell, y = cov.y0 + (j + 1) * cov.cell;
+      C.el("rect", { x: C.X(x), y: C.Y(y), width: cov.cell * C.s, height: cov.cell * C.s, fill: n ? "#f59e0b" : "#ef4444", opacity: 0.55 });
+    }));
+  }
   for (const r of reports.slice(-40)) C.el("circle", { cx: C.X(r.x), cy: C.Y(r.y), r: 3, fill: "#fff", opacity: 0.55 });
   decisions.slice(-30).forEach((d, i, arr) => {
     const sig = Math.sqrt(Math.max((d.cov[0][0] + d.cov[1][1]) / 2, 1e-6));
-    const col = d.suppressed ? "#888" : d.result === "OUT" ? "#ef4444" : d.result === "IN" ? "#22c55e" : "#f59e0b";
+    const col = d.suppressed ? "#888" : d.result === "OUT" ? (d.text === "FAULT" ? "#facc15" : "#ef4444") : d.result === "IN" ? "#22c55e" : "#94a3b8";
     const last = i === arr.length - 1;
     C.el("circle", { cx: C.X(d.x), cy: C.Y(d.y), r: Math.max(2 * sig * C.s, 4), fill: col, "fill-opacity": last ? 0.85 : 0.45, stroke: last ? "#fff" : "none", "stroke-width": 2 });
   });
@@ -208,7 +322,7 @@ function camCard(c) {
     card.querySelector(".ovb").onclick = () => { thumbs[c.name] = thumbs[c.name] === "overlay" ? "frame" : "overlay"; };
     $("cams").appendChild(card);
   }
-  card.querySelector(".nm").textContent = c.name;
+  card.querySelector(".nm").innerHTML = `${c.name}${c.connected ? (c.ready ? '<span class="badge ok">calling</span>' : c.calibrated ? '<span class="badge bad">rough calibration</span>' : '<span class="badge">not calibrated</span>') : '<span class="badge">offline</span>'}`;
   const ok = c.connected && c.fps_in > 1;
   card.querySelector(".dot").className = "dot " + (ok ? (c.calibrated ? "ok" : "warn") : "");
   const clk = c.clock || {};
@@ -222,12 +336,12 @@ function camCard(c) {
     <span>status</span><span>${c.connected ? "connected" : "offline"}${app ? " · app" : " · browser"}${c.worker_alive ? "" : " · worker stopped"}</span>
     ${videoRow}
     <span>drops</span><span>phone ${fmt(app ? ph.phone_drops : ph.dropped)}${app ? " · Wi-Fi " + fmt(ph.link_dropped) : ""} · server ${c.drops} · gaps ${c.seq_gaps}</span>
-    <span>latency</span><span>${fmt(c.latency_ms, 0, " ms")} processing</span>
+    <span>latency</span><span>${c.latency_ms > 500 ? `<b style='color:var(--warn)'>${fmt(c.latency_ms / 1000, 1, " s")} behind</b>` : fmt(c.latency_ms, 0, " ms")} processing${c.deferred_frames ? ` · catching up` : ""}${c.dropped_stale ? ` · ${c.dropped_stale} stale frames dropped` : ""}</span>
     <span>clutter</span><span>${c.cands_per_frame == null ? "–" : (c.cands_per_frame > 2.5
         ? `<b style='color:var(--warn)'>${fmt(c.cands_per_frame, 1)} candidates/frame</b> (yellow-green objects in view?)`
         : `${fmt(c.cands_per_frame, 1)} candidates/frame`)} · ${c.max_tracks ?? "–"} tracks</span>
     <span>clock</span><span>rtt ${fmt(clk.rtt_ms, 0, " ms")} · ±${fmt(clk.uncertainty_ms, 1, " ms")} · drift ${fmt(clk.drift_ppm, 0, " ppm")} · ${c.ts_source || "?"}</span>
-    <span>calibration</span><span>${c.calibrated ? "RMS " + fmt(c.calib_rms_px, 2, " px") : "<b style='color:var(--warn)'>needed for calls</b>"}${c.shared_bounces ? ` · ${c.shared_bounces} bounces shared with the reference camera (disagree ${fmt(c.shared_disagreement_cm, 1, " cm")})` : ""}</span>
+    <span>calibration</span><span>${c.calibrated ? "RMS " + fmt(c.calib_rms_px, 2, " px") + (c.ready ? "" : ` <b style='color:var(--bad)'>too rough: not used for calls</b>`) : "<b style='color:var(--warn)'>needed for calls</b>"}${c.drift && c.drift.status ? ` · position ${({ steady: "steady", pending: "checking a move", followed: "moved " + fmt(c.drift.moved_px, 0) + " px, followed", big: "<b style='color:var(--bad)'>moved a lot: recalibrate</b>", lost: "<b style='color:var(--warn)'>can't check</b>" })[c.drift.status] || c.drift.status}` : ""}${c.excluded ? ` · ${c.excluded} bounces not judged` : ""}${c.shared_bounces ? ` · ${c.shared_bounces} bounces shared with the reference camera (disagree ${fmt(c.shared_disagreement_cm, 1, " cm")})` : ""}</span>
     <span>bounces</span><span>${c.bounces ?? 0}</span>`;
   let pr = card.querySelector(".prop");
   if (c.proposal) {
@@ -265,16 +379,36 @@ function drawBall(m) {
 function addDecision(d, live) {
   decisions.push(d); if (decisions.length > 200) decisions.shift();
   const tr = document.createElement("tr");
-  const res = d.suppressed ? "2nd bounce" : d.unconfirmed_by ? "OUT? (unconfirmed)" : (d.text || d.result || "?");
-  tr.innerHTML = `<td>${fmt(d.t, 2)}</td><td class="res-${d.suppressed ? "" : d.result}">${res}</td><td>${fmt(d.p_out, 2)}</td>
+  const res = d.suppressed ? "2nd bounce" : d.unconfirmed_by ? "OUT? (unconfirmed)" : d.gate ? "OUT? (checked)" : (d.text || d.result || "?");
+  const cls = d.suppressed ? "" : d.text === "FAULT" ? "FAULT" : d.result;
+  tr.innerHTML = `<td>${fmt(d.t, 2)}</td><td class="res-${cls}">${res}</td><td>${d.play || "–"}</td>
     <td>${d.line || "–"}</td><td>${d.distance_cm != null ? (d.distance_cm > 0 ? "+" : "") + d.distance_cm.toFixed(1) + " cm" : "–"}</td>
     <td>${(d.cameras || []).length}${d.inflation > 1 ? " ⚠︎" : ""}</td><td>${fmt(d.latency_s, 2, " s")}</td>`;
   tr.title = `cameras: ${(d.cameras || []).join(", ")}\nposition: (${fmt(d.x, 3)}, ${fmt(d.y, 3)}) m\nconfidence ${fmt(d.confidence, 2)}` + (d.inflation > 1 ? `\ncameras disagreed (chi² ${fmt(d.chi2, 1)}); uncertainty inflated ×${fmt(d.inflation, 1)}` : "") +
-    (d.unconfirmed_by ? `\nsilent: ${d.unconfirmed_by.join(", ")} could see this spot but saw no bounce` : "");
+    (d.unconfirmed_by ? `\nsilent: ${d.unconfirmed_by.join(", ")} could see this spot but saw no bounce` : "") +
+    (d.gate ? `\nsilent: ${d.gate}` : "") + `\np(out) ${fmt(d.p_out, 2)}` +
+    (d.serve ? `\nserve from ${d.serve.server_side}${d.serve.service_side ? " " + d.serve.service_side : ""} (server's half from ${d.serve.side_from || "unknown"})` : "");
   $("log").prepend(tr);
   while ($("log").children.length > 100) $("log").lastChild.remove();
   renderCourt();
-  if (live && d.announce) { banner(d.text || "OUT"); say(d.text === "FAULT" ? "Fault" : "Out"); }
+  if (!d.suppressed) showCall(d, live);
+  if (live && d.announce) say(d.text === "FAULT" ? "Fault" : "Out");
+}
+
+// ---------------------------------------------------------------- status
+function fmtTime(t) { const m = Math.floor(t / 60), s = Math.floor(t % 60); return `${m}:${String(s).padStart(2, "0")}`; }
+function renderStatus(m) {
+  const conn = m.cameras.filter((c) => c.connected).length, ready = (m.ready_cameras || []).length;
+  const P = $("ready");
+  P.className = "pill " + (ready >= 2 ? "ok" : ready ? "" : "bad");
+  P.textContent = ready ? `${ready} of ${conn} camera${conn === 1 ? "" : "s"} calling` : (conn ? "Not ready: calibrate a camera" : "No cameras");
+  $("warns").innerHTML = (m.warnings || []).map((w) => `<div class="${w.level}">${w.text}</div>`).join("");
+  const h = m.host || {};
+  $("host").textContent = h.cpu_pct != null
+    ? `Mac: ${fmt(h.cpu_pct)}% of all ${h.cores} cores busy · BallTracker cameras ${fmt(h.workers_busy, 1)} cores · server ${fmt(h.server_pct)}% of a core` +
+      (h.top_other ? ` · busiest other app: ${h.top_other.name} ${fmt(h.top_other.pct)}%` : "")
+    : "";
+  renderCourt();
 }
 
 // ---------------------------------------------------------------- websocket
@@ -286,8 +420,9 @@ function connect() {
   ws.onmessage = (ev) => {
     const m = JSON.parse(ev.data);
     if (m.type === "state") {
-      state = m; $("clock").textContent = `session ${m.t.toFixed(0)} s` + (m.recording ? " · recording" : "");
-      showContext(m.context);
+      state = m; $("clock").textContent = `session ${fmtTime(m.t)}` + (m.recording ? " · recording" : "");
+      renderStatus(m);
+      showContext(m.context); showMode(m.play_mode || "match");
       if (m.cameras.length) { const ph = $("cams").querySelector("p"); if (ph) ph.remove(); }
       m.cameras.forEach(camCard);
       const urls = m.phone_urls || [];
@@ -417,12 +552,15 @@ $("caldone").onclick = async () => {
   const worst = Object.entries(j.per_point_px).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, e]) => `${k} ${e.toFixed(1)} px`).join(", ");
   const p = j.camera_position_m;
   const sus = (j.suspects || []).map((s) => `${s.name} (${s.err_px} px off; without it the rest fit to ${s.rms_without_px} px)`);
-  $("calres").textContent = `Saved. RMS ${j.rms_px.toFixed(2)} px over ${j.points} points (good: < 2 px).\nWorst: ${worst}\n` +
+  const snapNote = j.auto_snap ? `Snapped to the painted lines automatically (points moved ${j.auto_snap.moved_px} px; your clicks fit to ${j.clicked_rms_px.toFixed(1)} px).\n` : "";
+  const readyNote = j.ready ? "" : `NOT USED FOR CALLS: above ${j.max_rms_px} px. Click the 4 near corners, press Snap to lines, check, Calibrate.\n`;
+  $("calres").textContent = readyNote + snapNote + `Saved. RMS ${j.rms_px.toFixed(2)} px over ${j.points} points (good: < 2 px).\nWorst: ${worst}\n` +
     (sus.length ? `Probably mis-clicked, re-click or skip: ${sus.join("; ")}\n` : "") +
     `Camera at x ${p[0].toFixed(2)}, y ${p[1].toFixed(2)}, height ${p[2].toFixed(2)} m · lens ${j.hfov_deg.toFixed(0)}° wide.\n` +
     `Use "Check" on the camera card to see the court drawn over the live image.`;
   thumbs[cal.name] = "overlay";
 };
+$("covb").onchange = renderCourt;
 window.addEventListener("resize", () => { if ($("cal").style.display === "block") drawCal(); renderCourt(); });
 </script>
 </body>

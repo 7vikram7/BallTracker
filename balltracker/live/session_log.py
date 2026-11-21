@@ -78,7 +78,8 @@ def build_manifest(srv) -> dict:
         "versions": algorithm_versions(),
         "court": srv.court.to_dict(),
         "settings": {"record": srv.record, "phone_reduction": getattr(srv, "reduce", True), "detector_overrides": srv.detector_overrides, "hold_s": srv.judge.hold_s,
-                     "window_s": srv.judge.window_s, "corroborate": srv.judge.corroborate},
+                     "window_s": srv.judge.window_s, "corroborate": srv.judge.corroborate,
+                     "play_mode": getattr(srv, "play_mode", "match")},
         "summary": None,
     }
 
@@ -101,6 +102,8 @@ def camera_health(c) -> dict:
         # server-side load: candidates per frame after the ROI filter, tracks alive, time spent checking tracks
         "cands_per_frame": c.stats.get("cands_per_frame"), "max_tracks": c.stats.get("max_tracks"),
         "check_ms_per_s": c.stats.get("check_ms_per_s"),
+        # backlog guard: frames whose periodic bounce check was skipped / frames dropped as stale
+        "deferred_frames": c.stats.get("deferred_frames"), "dropped_stale": c.stats.get("dropped_stale"),
         "calib_rms_px": c.camera.reprojection_rms_px if c.camera else None,
         "phone": c.phone_stats,
     }
@@ -126,3 +129,44 @@ def finalize(srv) -> None:
         "latency_s": {"median": lat[len(lat) // 2], "max": lat[-1]} if lat else None,
     }
     write_manifest(srv)
+
+
+def host_load(prev: dict | None = None) -> dict:
+    """The Mac's load, logged every 10 s as ``host_stats`` (field test 3 could only estimate it).
+
+    * ``cpu_pct``: all processes' CPU, in % of the whole machine (100 = every logical core busy),
+      from ``ps`` (a short moving average per process);
+    * ``server_pct``: this server process alone (one core = 100), from its own CPU time;
+    * ``load1``: 1-minute load average; ``top_other``: the busiest process that is not BallTracker.
+    """
+    import os
+    import resource
+    import subprocess
+
+    out: dict = {"load1": round(os.getloadavg()[0], 2), "cores": os.cpu_count()}
+    now = time.monotonic()
+    ru = resource.getrusage(resource.RUSAGE_SELF)
+    cpu_s = ru.ru_utime + ru.ru_stime
+    if prev and now > prev["_t"]:
+        out["server_pct"] = round(100 * (cpu_s - prev["_cpu"]) / (now - prev["_t"]), 1)
+    out["_t"], out["_cpu"] = now, cpu_s
+    try:
+        txt = subprocess.run(["ps", "-A", "-o", "%cpu=,comm="], capture_output=True, text=True, timeout=2).stdout
+        rows = []
+        for ln in txt.splitlines():
+            parts = ln.strip().split(None, 1)
+            if len(parts) == 2:
+                try:
+                    rows.append((float(parts[0]), parts[1]))
+                except ValueError:
+                    pass
+        total = sum(r[0] for r in rows)
+        out["cpu_pct"] = round(total / max(os.cpu_count() or 1, 1), 1)
+        others = [r for r in rows if "python" not in r[1].lower()]
+        if others:
+            pct, comm = max(others)
+            out["top_other"] = {"name": os.path.basename(comm)[:40], "pct": round(pct, 1)}
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return out
+

@@ -16,7 +16,9 @@ def test_field_test_2_sample_replays_with_play_state(tmp_path):
 
     s = tmp_path / SAMPLE.name
     shutil.copytree(SAMPLE, s)
-    res = replay(s)
+    # The sample's calibrations (9.4 px RMS, field test 2) predate the 3 px readiness rule; this test
+    # is about the play state on real reports, so use them anyway.
+    res = replay(s, max_rms_px=float("inf"))
     dec = res["decisions"]
     assert len(dec) >= 5, len(dec)  # a rally's worth of bounces in 60 s
     judged = [d for d in dec if not d.get("suppressed")]
@@ -45,5 +47,5 @@ def test_gzipped_detections_replay_identically(tmp_path):
         f.with_name("dets.jsonl.gz").write_bytes(gzip.compress(f.read_bytes()))
         f.unlink()
     key = lambda r: [(d["t"], d.get("result"), d.get("suppressed")) for d in r["decisions"]]  # noqa: E731
-    a, b = replay(plain), replay(packed)
+    a, b = replay(plain, max_rms_px=float("inf")), replay(packed, max_rms_px=float("inf"))
     assert key(a) == key(b) and len(a["decisions"]) >= 5

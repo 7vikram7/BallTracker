@@ -28,7 +28,11 @@ Known gaps (explicit, not hidden)
 * Who hit the ball is not known from one camera; "rally" assumes the bounce is
   the first bounce on the receiving side. A ball bouncing twice is filtered by a
   simple heuristic (``suppress_secondary``).
-* Serve context (server side and court) must be supplied by the caller.
+* Serve context (server side and court) is supplied by the caller: the live judge detects serves
+  itself (live/playstate.py) or takes it from the dashboard. When the server's half (right/left)
+  is not known, the serve is judged against the whole service area of the receiving side (both
+  service courts, kitchen excluded): kitchen, baseline and sideline faults are called, a serve to
+  the wrong service court is not.
 * Kitchen (non-volley zone) *player* violations are not handled here.
 """
 
@@ -60,7 +64,7 @@ class LineCallConfig:
 @dataclass(frozen=True)
 class ServeContext:
     server_side: Side
-    service_side: ServiceSide
+    service_side: ServiceSide | None = None  # None: the server's half is not known
 
 
 def p_outside(rect: Rect, mean: np.ndarray, cov: np.ndarray, patch_radius: float, n: int, rng: np.random.Generator) -> float:
@@ -93,8 +97,13 @@ class PickleballLineCaller:
 
     def target_for(self, bounce: BounceEvent, serve: ServeContext | None) -> tuple[Rect, str, ShotContext]:
         if serve is not None:
+            recv = serve.server_side.other
+            if serve.service_side is None:
+                k, hw, hl = self.court.kitchen_depth, self.court.half_w, self.court.half_l
+                rect = Rect(-hw, hw, k, hl) if recv is Side.B else Rect(-hw, hw, -hl, -k)
+                return rect, f"service_area_{recv.value}", ShotContext.SERVE
             rect = self.court.serve_target(serve.server_side, serve.service_side)
-            return rect, f"service_court_{serve.server_side.other.value}_{serve.service_side.value}", ShotContext.SERVE
+            return rect, f"service_court_{recv.value}_{serve.service_side.value}", ShotContext.SERVE
         side = Side.B if bounce.position.y >= 0 else Side.A
         return self.court.half_rect(side), f"half_{side.value}", ShotContext.RALLY
 

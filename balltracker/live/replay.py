@@ -7,8 +7,12 @@ Uses what the session folder holds:
     of tracking, bounce detection, fusion and calls;
   * browser phones: ``<camera>/frames.bin`` + ``index.csv`` (needs ``--record``):
     the detector runs again on every frame;
-  * ``calibration/<camera>.json`` (or the last ``calibrated`` event), ``court.json``,
-    and serve-context changes from ``events.jsonl``.
+  * the calibration history from ``events.jsonl``: the model in use when the camera connected,
+    then every ``calibrated`` event (clicks, automatic line snaps, drift corrections) from its
+    time on; sessions without it use ``calibration/<camera>.json`` throughout. Bounces seen
+    while the camera's calibration was too rough to be used (upkeep.MAX_RMS_PX) are left out,
+    as the live server does;
+  * ``court.json`` and serve-context changes from ``events.jsonl``.
 
 The live run may differ from a replay for reasons that aren't logic changes: frames
 the live worker dropped when the Mac was overloaded (replay processes all of
@@ -70,9 +74,17 @@ def load_session(session: Path | str) -> dict:
             cam = Camera.from_dict(last_calib[d.name])
         con = [e for e in events if e.get("type") == "camera_connected" and e.get("camera") == d.name]
         regularize = bool(con[-1].get("regularize_time")) if con else False
-        cams[d.name] = {"kind": kind, "dir": d, "camera": cam, "regularize_time": regularize}
+        timeline = [(float(e["t"]), Camera.from_dict(e["camera_model"])) for e in events
+                    if e.get("camera") == d.name and e.get("camera_model")
+                    and e.get("type") in ("camera_connected", "calibrated")]
+        cams[d.name] = {"kind": kind, "dir": d, "camera": cam, "regularize_time": regularize,
+                        "timeline": sorted(timeline, key=lambda a: a[0])}
     contexts = [(e["t"], e["context"]) for e in events if e.get("type") == "context"]
-    return {"dir": session, "court": court, "events": events, "manifest": manifest, "cameras": cams, "contexts": contexts}
+    # match (serves recognised) or drill: the mode at the start, then every change
+    start_mode = ((manifest or {}).get("settings") or {}).get("play_mode", "match")
+    modes = [(float("-inf"), start_mode)] + [(e["t"], e["mode"]) for e in events if e.get("type") == "play_mode"]
+    return {"dir": session, "court": court, "events": events, "manifest": manifest, "cameras": cams, "contexts": contexts,
+            "modes": modes}
 
 
 def _dets_path(folder: Path) -> Path | None:
@@ -105,70 +117,111 @@ def _iter_browser(folder: Path):
                 yield int(row["seq"]), float(row["t_session"]), img
 
 
-def camera_reports(name: str, info: dict, court: CourtSpec, detector_overrides: dict | None = None) -> list[BounceEvent]:
+def camera_reports(name: str, info: dict, court: CourtSpec, detector_overrides: dict | None = None,
+                   max_rms_px: float | None = None) -> list[BounceEvent]:
     """Run one camera's recording through the streaming pipeline; return its bounce reports."""
     cfg = LiveConfig()
     for k, v in (detector_overrides or {}).items():
         if hasattr(cfg.detector, k):
             setattr(cfg.detector, k, tuple(v) if isinstance(v, list) else v)
-    pipe = LiveCameraPipeline(name, court, info["camera"], cfg)
+    from .upkeep import MAX_RMS_PX, calibration_ready
+
+    lim = MAX_RMS_PX if max_rms_px is None else max_rms_px
+    timeline = list(info.get("timeline") or [])
+    first = timeline[0][1] if timeline else info["camera"]
+    pipe = LiveCameraPipeline(name, court, first, cfg)
     pipe.set_time_regularization(info.get("regularize_time", False))
     out: list[dict] = []
+    nxt = 1 if timeline else 0
+    ready = calibration_ready(first, lim)
+
+    def take(msgs: list[dict]) -> None:
+        for o in msgs:
+            if o.get("kind") != "bounce":
+                continue
+            if ready:
+                out.append(o)
+            else:
+                info["excluded"] = info.get("excluded", 0) + 1
+
+    def follow(ts: float) -> None:
+        nonlocal nxt, ready
+        while nxt < len(timeline) and timeline[nxt][0] <= ts:
+            pipe.set_camera(timeline[nxt][1])
+            ready = calibration_ready(timeline[nxt][1], lim)
+            nxt += 1
+
     if info["kind"] == "edge":
         for seq, ts, cl, size in _iter_edge(info["dir"]):
+            follow(ts)
             cands = [Candidate(u=u, v=v, radius_px=r, score=sc, area_px=float(np.pi * r * r), elongation=1.0)
                      for u, v, r, sc in cl]
-            if size == (0, 0) and info["camera"] is not None:
-                size = tuple(info["camera"].image_size)
-            out += pipe.process_candidates(seq, ts, cands, size)
+            if size == (0, 0) and pipe.camera is not None:
+                size = tuple(pipe.camera.image_size)
+            take(pipe.process_candidates(seq, ts, cands, size))
     else:
         for seq, ts, img in _iter_browser(info["dir"]):
-            out += pipe.process(seq, ts, img)
-    out += pipe.flush()
-    return [BounceEvent.model_validate(o["event"]) for o in out if o.get("kind") == "bounce"]
+            follow(ts)
+            take(pipe.process(seq, ts, img))
+    take(pipe.flush())
+    return [BounceEvent.model_validate(o["event"]) for o in out]
 
 
 def _parse_context(ctx: str) -> ServeContext | None:
     if not ctx.startswith("serve:"):
         return None
     _, side, svc = ctx.split(":")
-    return ServeContext(Side(side.upper()), ServiceSide(svc.lower()))
+    return ServeContext(Side(side.upper()), None if svc == "?" else ServiceSide(svc.lower()))
 
 
 def judge_reports(court: CourtSpec, cameras: dict, reports: dict[str, list[BounceEvent]], contexts=(),
-                  hold_s: float = 0.6) -> list[dict]:
+                  hold_s: float = 0.6, modes=(), max_rms_px: float | None = None) -> list[dict]:
     """Feed all cameras' reports to a LiveJudge in (estimated) arrival order."""
-    from .server import camera_can_see, decision_dict
+    from .server import camera_can_see, camera_view, decision_dict
 
-    models = {n: c["camera"] for n, c in cameras.items()}
+    from .upkeep import MAX_RMS_PX, calibration_ready
+
+    lim = MAX_RMS_PX if max_rms_px is None else max_rms_px
+    # can_see / view / expected cameras: the last calibration of each camera
+    models = {n: (c["timeline"][-1][1] if c.get("timeline") else c["camera"]) for n, c in cameras.items()}
     judge = LiveJudge(court, PickleballLineCaller(court, LineCallConfig()), hold_s=hold_s,
-                      can_see=lambda n, x, y: camera_can_see(models.get(n), court, x, y))
-    expected = {n for n, m in models.items() if m is not None}
+                      can_see=lambda n, x, y: camera_can_see(models.get(n), court, x, y),
+                      view=lambda n, x, y: camera_view(models.get(n), x, y))
+    expected = {n for n, m in models.items() if calibration_ready(m, lim)}
     queue = sorted(((ev.t + ARRIVAL_DELAY_S, ev) for evs in reports.values() for ev in evs), key=lambda a: a[0])
     ctx = sorted(contexts)
-    ci = 0
+    md = sorted(modes, key=lambda a: a[0])
+    ci = mi = 0
     out: list[dict] = []
     for arrival, ev in queue:
         out += [decision_dict(d, None) for d in judge.poll(arrival, expected)]
         while ci < len(ctx) and ctx[ci][0] <= arrival:
             judge.serve = _parse_context(ctx[ci][1])
             ci += 1
+        while mi < len(md) and md[mi][0] <= arrival:
+            judge.play.cfg.serve_detection = md[mi][1] != "drill"
+            mi += 1
         judge.add(ev, arrival)
     out += [decision_dict(d, None) for d in judge.flush()]
     return out
 
 
-def replay(session: Path | str, detector_overrides: dict | None = None, hold_s: float | None = None) -> dict:
+def replay(session: Path | str, detector_overrides: dict | None = None, hold_s: float | None = None,
+           max_rms_px: float | None = None) -> dict:
+    """``max_rms_px``: calibrations rougher than this are not used for calls (default
+    upkeep.MAX_RMS_PX, as live; ``float("inf")`` to replay sessions from before that rule)."""
     s = load_session(session)
     if hold_s is None:
         hold_s = ((s["manifest"] or {}).get("settings") or {}).get("hold_s", 0.6)
     if detector_overrides is None:
         detector_overrides = ((s["manifest"] or {}).get("settings") or {}).get("detector_overrides") or {}
-    reports = {n: camera_reports(n, info, s["court"], detector_overrides) for n, info in s["cameras"].items()}
-    decisions = judge_reports(s["court"], s["cameras"], reports, s["contexts"], hold_s)
+    reports = {n: camera_reports(n, info, s["court"], detector_overrides, max_rms_px) for n, info in s["cameras"].items()}
+    decisions = judge_reports(s["court"], s["cameras"], reports, s["contexts"], hold_s, s["modes"], max_rms_px)
     live = [e for e in s["events"] if e.get("type") == "decision"]
     return {"session": str(s["dir"]), "cameras": {n: {"kind": c["kind"], "calibrated": c["camera"] is not None,
-                                                     "reports": len(reports[n])} for n, c in s["cameras"].items()},
+                                                     "reports": len(reports[n]), "excluded": c.get("excluded", 0),
+                                                     "calibrations": len(c.get("timeline") or [])}
+                                                 for n, c in s["cameras"].items()},
             "decisions": decisions, "live_decisions": live, "comparison": compare(live, decisions)}
 
 

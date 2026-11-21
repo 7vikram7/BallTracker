@@ -135,7 +135,10 @@ def build_report(session: Path | str, marks_csv: Path | str | None = None) -> tu
     L += ["## Calls", "",
           f"{len(reports)} single-camera reports → {len(decisions)} decisions ({multi} seen by 2+ cameras): "
           + ", ".join(f"{k} {v}" for k, v in sorted(by.items())),
-          f"Spoken: {sum(1 for d in decisions if d.get('announce'))}. "
+          f"Spoken: {sum(1 for d in decisions if d.get('announce'))} "
+          f"(OUT {sum(1 for d in decisions if d.get('announce') and d.get('text') != 'FAULT')}, "
+          f"FAULT {sum(1 for d in decisions if d.get('announce') and d.get('text') == 'FAULT')}); "
+          f"serves recognised: {sum(1 for d in decisions if d.get('play') == 'serve')}. "
           f"Delay bounce → call: median {_fmt(float(np.median(lat)) if lat else None, 2, ' s')}, "
           f"max {_fmt(max(lat) if lat else None, 2, ' s')}.", "",
           "| t (s) | call | spoken | p(out) | line | distance | cameras | note |", "|---|---|---|---|---|---|---|---|"]
@@ -143,6 +146,11 @@ def build_report(session: Path | str, marks_csv: Path | str | None = None) -> tu
         note = d.get("suppressed") or (f"unconfirmed by {', '.join(d['unconfirmed_by'])}" if d.get("unconfirmed_by") else "")
         if d.get("cameras_disagree"):
             note = (note + "; " if note else "") + f"cameras disagree (chi2 {d.get('chi2', 0):.0f})"
+        if d.get("serve"):
+            sv = d["serve"]
+            note = (note + "; " if note else "") + f"serve from {sv['server_side']} {sv.get('service_side') or '(half unknown)'}"
+        if d.get("gate"):
+            note = (note + "; " if note else "") + f"silent: {d['gate']}"
         L.append(f"| {d['t']:.2f} | {d.get('result', '–')} | {'**' + str(d.get('text')) + '**' if d.get('announce') else ''} | "
                  f"{_fmt(d.get('p_out'), 2)} | {d.get('line') or ''} | {_fmt(d.get('distance_cm'), 1, ' cm')} | "
                  f"{len(d.get('cameras') or [])} | {note} |")
@@ -166,6 +174,23 @@ def build_report(session: Path | str, marks_csv: Path | str | None = None) -> tu
                      f"{_fmt(r.get('p_out'), 2)} | {r.get('cams', '')} |")
         L.append("")
 
+    host = [e for e in events if e.get("type") == "host_stats" and e.get("cpu_pct") is not None]
+    if host:
+        cpu = np.array([e["cpu_pct"] for e in host])
+        wb = np.array([e.get("workers_busy") or 0 for e in host])
+        tops: dict[str, list[float]] = {}
+        for e in host:
+            if e.get("top_other"):
+                tops.setdefault(e["top_other"]["name"], []).append(e["top_other"]["pct"])
+        top = max(tops.items(), key=lambda kv: np.mean(kv[1]) * len(kv[1]), default=None)
+        L += ["## The Mac's load", "",
+              f"* Whole machine ({host[-1].get('cores', '?')} logical cores): median {np.median(cpu):.0f}%, "
+              f"90% of the time below {np.percentile(cpu, 90):.0f}%, peak {cpu.max():.0f}%",
+              f"* BallTracker's camera workers: median {np.median(wb):.2f} cores, peak {wb.max():.2f}",
+              f"* Server process: median {np.median([e.get('server_pct') or 0 for e in host]):.0f}% of a core"]
+        if top:
+            L.append(f"* Busiest other app: {top[0]} (median {np.median(top[1]):.0f}% of a core when it was the busiest)")
+        L.append("")
     warns = [e for e in events if e.get("type") == "warning"]
     if warns:
         L += ["## Warnings", ""] + [f"* {_fmt(e.get('t'), 1)} s {e.get('camera', '')}: {e.get('text')}" for e in warns[:50]] + [""]
@@ -174,8 +199,10 @@ def build_report(session: Path | str, marks_csv: Path | str | None = None) -> tu
         L += ["## Calibrations", ""]
         for e in calib:
             worst_pt = max((e.get("per_point_px") or {}).items(), key=lambda kv: kv[1], default=None)
-            L.append(f"* {e['camera']} at {e['t']:.0f} s: RMS {e['rms_px']:.2f} px from {e['points']} points"
-                     + (f"; worst point {worst_pt[0]} {worst_pt[1]:.1f} px" if worst_pt else ""))
+            pts = e["points"] if isinstance(e.get("points"), int) else len(e.get("clicked") or {})
+            L.append(f"* {e['camera']} at {e['t']:.0f} s ({e.get('source', 'clicks')}): RMS {e['rms_px']:.2f} px from {pts} points"
+                     + (f"; worst point {worst_pt[0]} {worst_pt[1]:.1f} px" if worst_pt else "")
+                     + (f"; moved {e['moved_px']} px" if e.get("moved_px") is not None else ""))
         L.append("")
     replays = sorted((session / "replays").glob("replay-*.json")) if (session / "replays").exists() else []
     if replays:

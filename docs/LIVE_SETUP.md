@@ -86,41 +86,83 @@ On the dashboard, click **Calibrate** on the camera's card:
    **By hand:** click each point where the outer edges of the lines meet; skip points you
    can't see; at least 6, spread across the image. (Net-post tops are not used: portable
    posts stand outside the sidelines.)
-3. Click **Calibrate**. Aim for **RMS under 2 px**. Then click **Check** on the camera card: the court lines
-   should sit on the real lines in the live image.
+3. Click **Calibrate**. The server then snaps your points to the painted lines by itself and
+   uses the snap when the lines fit well (it says so under the result). Aim for **RMS under
+   2 px**. **Above 3 px the camera is not used for calls** (its card says *rough calibration*):
+   click the 4 near corners, **Snap to lines**, check, Calibrate. Then click **Check** on the
+   camera card: the court lines should sit on the real lines in the live image.
 
-When you save a camera, the other cameras are re-checked against their own court lines, and
-during play the bounces they see together with the saved camera refine them. If a better
-calibration is found, the camera card shows **Refined calibration ready** with how much it
-improves; **Review** opens it for checking, **Dismiss** ignores it. Nothing changes without you.
+When you save a camera, the other cameras are re-snapped to their own court lines (applied by
+itself when the lines fit well, otherwise offered as **Refined calibration ready** → Review).
+During play the bounces they see together with the saved camera can refine them further
+(also offered for review).
 
-If the phone moves (knocked, re-mounted), calibrate again. A scaled-down floor court works the
-same way: start the server with `bt serve --court-scale 0.2` (or `--court my_court.yaml` for a
-measured court); see [MINI_COURT.md](MINI_COURT.md).
+**If a phone moves** (wind, a bump, the mount sagging), the server notices: every 10 s it
+compares the camera's picture with the frame it was calibrated on (fences, walls and the net
+don't move; players are ignored). A small move (a few to ~80 pixels) is followed automatically
+and the card says *moved N px, followed*. A big move, or a picture it can't match (covered, very
+dark), puts a red warning at the top of the dashboard: calibrate that camera again.
+
+**Aim each camera to include 1–1.5 m beyond the lines on its side.** Tick **camera coverage**
+above the court diagram: green cells are seen by two or more cameras, amber by one, red by none.
+The dashboard warns when the strip outside a line is seen by only one camera: an OUT there would
+rest on one camera alone, and a camera far away looking across the line can't judge it (it then
+stays silent).
+
+A scaled-down floor court works the same way: start the server with `bt serve --court-scale 0.2`
+(or `--court my_court.yaml` for a measured court); see [MINI_COURT.md](MINI_COURT.md).
 
 ## 4. Play
 
-* **Rally** is the default. Before a serve, click the matching **Serve**
-  button (e.g. *Serve A·right*): the next bounce is judged against the
-  diagonal service court (kitchen line counts as a fault), then it goes back to
-  rally automatically.
-* Each call appears on the court diagram and in the **Calls** table, with
-  p(out), the nearest line and the distance from it. Typical delay: 0.5–2 s.
-* **When it stays silent**: the ball was in; or the estimate was too
-  uncertain (*unsure*); or only one camera saw a bounce that another camera
-  could also see (*OUT? (unconfirmed)*); or it was a second bounce.
+* **Court screen** (button at the top, or key **B**; **Esc** to leave): the whole window is the
+  call, readable from across the court. **Green**: in play / the last bounce was IN. **Red**: OUT.
+  **Yellow**: service FAULT. Red and yellow stay for 6 s. **Grey**: not ready (no calibrated
+  camera connected). The bottom row shows each camera (green = calling). Tap the screen once to
+  turn on the spoken calls.
+* **Serves are recognised automatically.** Between points (after an OUT/FAULT, a second bounce,
+  the ball being bounced or tossed, or 5 s without play) the next ball that comes over the net
+  from behind a baseline is a serve. It is judged against the diagonal service court: kitchen
+  (kitchen line included), beyond the baseline or sideline, or **over the centre line into the
+  wrong court** → **FAULT**. The server's half (right/left) comes from where the ball's arc meets
+  the baseline, or from where the server bounced the ball before serving; when neither is clear,
+  only kitchen, baseline and sideline faults are called. **Override ▸** in the header forces the
+  next bounce to be judged as a particular serve.
+* Each call appears on the court diagram and in the **Calls** table (with *serve* / *rally*),
+  the nearest line and the distance from it. Typical delay: 1–1.5 s.
+* **When it stays silent**: the ball was in; or the estimate was too uncertain (*unsure*); or only
+  one camera saw a bounce that another camera could also see (*OUT? (unconfirmed)*); or it was a
+  second bounce; or a check failed (*OUT? (checked)*; hover for why): the ball would have been
+  faster than 90 km/h, it was ball handling far outside the court between points, or one far
+  camera was looking across the line.
 
-## 5. Capacity on this Mac (2020 Intel i5)
+## 5. Capacity on this Mac (2020 Intel i5, 4 cores)
 
-With **Ball detection: On this phone** (browser or app) the Mac only tracks and calls: about 0.2 cores
-per camera, so the limits below apply only to phones in **On the Mac** (video) mode.
+With **Ball detection: On this phone** (the app, or the browser page's on-phone mode) the Mac only
+tracks and calls. Measured on field test 3's recording (2026-11-21, 45 minutes of play) with
+the faster tracking of that day, in cores per camera (typical / 90% of the time below / peak):
 
+| camera | typical | p90 | peak |
+|---|---|---|---|
+| iPhone, 120 fps | 0.25 | 0.55 | 0.9 |
+| Android, 60 fps | 0.25 | 0.33 | 0.5 |
+| Android, 30 fps | 0.01 | 0.03 | 0.1 |
 
-Each camera needs about 1.3 CPU cores at 1280×720 / 60 fps (JPEG decode +
-detection). Measured: **2 cameras at 60 fps keep up** (no dropped frames when the
-Mac isn't busy with other work). With 3–4 cameras, use 30 fps or 960×540, or
-use an Apple Silicon Mac. The camera card shows *in* and *processed* fps and
-*drops*: if *processed* stays below *in*, lower the frame rate.
+Four cameras need about 1.5 cores at the 90th percentile, out of 4: they fit. Each camera has its
+own process, so what matters is that no single camera reaches a whole core (the iPhone did,
+20% of the time, before these changes). The dashboard shows the Mac's load under the court
+diagram, and every session logs it (`host_stats`).
+
+* **Close other heavy apps during play.** A code editor's window used 1.4 cores of the Mac while
+  idle in the background on the day of field test 3: more than all cameras together.
+* Each camera runs in its own process. If one camera's processing falls behind (cluttered view:
+  sun stripes, yellow-green clothes), it skips its periodic bounce search until it has caught up
+  (each track still gets its search when it ends), and drops frames more than 1.5 s old. The card
+  shows *catching up* or *N s behind*.
+* Don't use a camera phone as the Wi-Fi hotspot: it heats up, drains its battery, and (on an
+  IPv6-only hotspot) the app on that phone can't reach the Mac.
+
+In **On the Mac** (video) mode each camera needs about 1.3 CPU cores at 1280×720 / 60 fps (JPEG
+decode + detection): 2 such cameras keep up; with more, use 30 fps or 960×540.
 
 Phones in a browser can't record 240 fps; 60 fps is the practical maximum.
 Our experiments (docs/PHASE0_RESULTS.md) show 60 fps gives centimetre accuracy

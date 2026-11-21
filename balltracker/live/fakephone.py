@@ -295,7 +295,7 @@ def run_live_demo(presets: list[str], *, seed: int = 11, shots: int = 8, width: 
             print(f"rendered {p}: {len(enc)} frames in {time.monotonic() - a:.1f}s; calibration RMS {cam.reprojection_rms_px:.2f}px")
     court = rendered[0][1].court
     cpu0 = _cpu_times()
-    srv = LiveServer(court, data_dir, record=record)
+    srv = LiveServer(court, data_dir, record=record, play_mode="drill")  # every simulated shot is fed from baseline A
     starts: dict[str, float] = {}
     offsets = clock_offsets or [0.0] * len(presets)
     drifts = drift_ppm or [0.0] * len(presets)

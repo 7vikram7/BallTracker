@@ -510,3 +510,63 @@ The iPhone 17 is stuck because it's the hotspot that the Mac is connected to. Th
 After switching the hotspot, the server can stay running. The session is still empty (no events, calibrations or recordings yet), so nothing is lost.
 
 Later I can make the server and app handle this case themselves, for example by also offering the `.local` name. That isn't worth changing on court right now.
+
+### 2026-11-21 11:36 · outcome
+
+The analysis is done. The pipeline mostly works, but only two of the three cameras could be trusted. There's no ground truth, so I can't score the calls; everything below comes from comparing the cameras with each other.
+
+**The session:** 68 minutes, three cameras.
+- **iPhone 17:** A-left corner, 120 fps. It was also the hotspot.
+- **Samsung (samsung):** B-right corner. It asked for 120 fps but delivered 58.
+- **Nothing (nothing):** A-right corner, 30 fps at 720p.
+
+Setup took 23 minutes before all three were calibrated, which left about 45 minutes of play.
+
+**Calls:** 1,286 decisions, 425 of them seen by two or more cameras.
+- IN 608, UNCERTAIN 344, and 22 OUTs, all spoken.
+- From bounce to spoken call took 1.4 s typically.
+
+### What works
+- **Phone clocks:** they agree within about ±10 ms (1 ms typically). The dashboard's ±80–114 ms for the Android phones is far too pessimistic.
+- **iPhone 17 and Nothing:** they agree on bounce positions to 5 cm right after calibration, and 11–22 cm later.
+- **The Mac** wasn't overloaded overall (under 2 of its 4 cores), and almost no frames were dropped.
+- **Two-camera OUTs (10 of the 22) look credible.** The cameras agree closely, e.g. 3.42 m vs 3.44 m and 3.78 m vs 3.79 m from the centre line.
+
+### What went wrong
+1. **The Samsung's calibration was off.** Its positions were about 50 cm away from the iPhone's at the start and about 100 cm by the end.
+   - Its clicks were imprecise: average error 6.9 px, and one point was 18 px off.
+   - The dashboard offered a fix twice (snap to the court lines, then a correction from shared bounces), but neither was accepted.
+   - Replaying its bounces with the line snap cuts the error on the A half from 90 cm to 17 cm.
+2. **Cameras moved during play.** I compared each camera's snapshots with its calibration frame:
+   - iPhone: shifted 17 px sideways at about 33 minutes.
+   - Samsung: slowly tilted, then jumped about 25 px at about 43 minutes.
+   - Nothing: stayed steady.
+
+   Calibration is never updated afterwards, so the errors grew. 17 px on the iPhone's far view is tens of centimetres.
+3. **The right sideline was covered by one camera only.** Only 34% of the strip just outside it was seen by two cameras (the left sideline: 100%). The two right-side cameras had that line at the edge of their frames. So 11 of the 12 single-camera OUTs were the iPhone's alone, seen from about 10 m away and almost edge-on.
+4. **Some spoken OUTs were false:**
+   - Three had incoming ball speeds of 28–48 m/s, which is impossible (normal rally bounces arrive at about 7 m/s). Those were tracking errors.
+   - Three landed on the same spot, 1.5 m outside the right sideline, where players stand between points. That was ball handling, not play.
+5. **The iPhone's processing on the Mac fell behind.** It maxed out a core 63 times, running up to 3.4 s behind, when the sun stripes, shadows and players produced the maximum number of ball candidates per frame.
+6. **Phones:**
+   - The iPhone 17 (camera plus hotspot) overheated from minute 25 and went from 80% to 30% battery.
+   - The Nothing at 30 fps caught only 145 bounces, against the iPhone's 864.
+
+### Proposed fixes (not built yet)
+1. Apply the court-line snap automatically when the lines fit well, and don't treat a calibration with more than 3 px average error as ready.
+2. **Drift tracking:** compare each snapshot with the calibration frame and re-calibrate when a camera moves more than 3 px. I tested the comparison on this session's snapshots; it measures the movement reliably.
+3. A coverage map on the dashboard that warns when only one camera sees outside a line. When placing cameras, include 1–1.5 m beyond each camera's own sideline in its view.
+4. Checks before speaking an OUT:
+   - stay silent if the ball arrived faster than about 25 m/s;
+   - no single-camera OUT from a far, edge-on view;
+   - stay silent on "start of play" bounces far outside the court.
+5. Drop stale frames when the Mac falls behind, so calls don't arrive seconds late.
+6. Use a phone that isn't filming as the hotspot.
+
+Fixes 1–5 can be measured by replaying this session before and after. Should I build them?
+
+The exported session (detections only, no images) and decision log entry 24 are committed and pushed as `6f03fce`; the full test suite passed (93 tests). I added the second friend's name to `.private_words`: its camera folder had come out under the friend's name in the first export, and I caught that before committing.
+
+## 2026-11-21 15:25 · request (session 1661f7c3)
+
+> Sure, go ahead and build these. Apart from this, I noticed that it did not detect when a point was being started, that is a service should be called out on the center line. I think that logic might need some working to detect a point as being started, but reanalyze this one too. Apart from that, the dashboard UI needs to be crisp. The Mac is placed in a corner during play, and I think if it detects a out, the entire screen can become red, and if it detects a service fault, the entire screen can become yellow. So even from far away, it is visually visible. If it is in, probably it could stay green. Also do an analysis of how much the server was loaded throughout the play. I need an answer if this machine can support one more device.
