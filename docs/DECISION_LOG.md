@@ -492,9 +492,100 @@ contacts so the calls can be scored.
 
 ---
 
-## Current roadmap (as of 2026-11-20)
+## 24. Field test 3: full court in morning sun, three cameras (2026-11-21)
 
-**Now: validate on real courts**
+**Request.** A detailed analysis of a 68-minute session on a club's full-size court
+(`data/field/20261121-071625/`).
+
+**Setup.**
+* iPhone 17 behind the A-left corner: 1080p at 120 fps.
+* Samsung SM-S948B behind the B-right corner: asked for 120 fps and delivered 58.
+* Nothing A009P behind the A-right corner: 720p at 30 fps.
+* The fourth phone was not connected.
+* The Mac was on the iPhone 17's hotspot, which was IPv6-only. The app on the hotspot phone
+  itself first stuck on "connecting".
+* Setup took 23 minutes before all three cameras were calibrated, leaving about 45 minutes of
+  play.
+
+**Results.**
+* 1 740 single-camera reports gave 1 286 decisions, 425 of them seen by 2 or more cameras.
+* IN 608, OUT 22 (all spoken), UNCERTAIN 344; 312 later bounces were suppressed.
+* Bounce to call: median 1.38 s, p90 1.7 s.
+* There is no ground truth.
+
+**Analysis.**
+* **Clock sync is fine.** The pessimistic sync estimate was ±80-114 ms over the hotspot. Matched
+  bounces show the real offsets: median 1 ms, interquartile range within ±10 ms.
+* **Two cameras agree well.** iPhone 17 and Nothing agreed to 5 cm right after calibration and
+  11-22 cm later.
+* **The Samsung disagreed.** It was 48 cm off the iPhone right after calibration and about
+  100 cm by the end.
+  * Its clicked calibration had RMS 6.9 px; one point was 18 px off.
+  * The dashboard's court-line snap (11 px move, 0.6 px line fit) and later the shared-bounce
+    refinement (123 → 62 cm) were proposed but not accepted.
+  * Re-projecting its bounces with the snapped calibration: on the A half, 90 cm → 17 cm. The
+    remaining 37 cm on the B half is mostly the iPhone's own far-court error, which grows from
+    13 cm at 8-12 m to 45 cm at 16-25 m from it.
+  * It is not a frame crop mismatch: the Android preview JPEG comes from the analysed buffer.
+* **Cameras move during play.** Snapshots were registered against each camera's calibration
+  frame:
+  * iPhone: 17 px sideways at about 33 minutes.
+  * Samsung: a slow tilt of 8-15 px, then a 23-29 px jump at about 43 minutes.
+  * Nothing: within 3 px for most of the session.
+  * The calibration is never updated, so the error grows over the session.
+* **Coverage gap on the right sideline.**
+  * Only 34% of the strip 1 m outside the right sideline was seen by 2 or more cameras.
+    Baselines: 84%. Left sideline: 100%.
+  * The two right-side cameras had that sideline at the edge of their frames. Right-sideline
+    OUTs were judged by the iPhone alone, from 9-10 m away and nearly edge-on (about 3 cm per
+    pixel; a 17 px shift is tens of cm).
+* **Spoken OUTs.**
+  * 10 two-camera OUTs. The cameras' own positions agree closely, e.g. 3.42/3.44 m and
+    3.78/3.79 m.
+  * 12 single-camera OUTs, 11 of them from the iPhone, 0.6-1.9 m out. Three of these had an
+    incoming speed of 28-48 m/s (rally bounces: median 7 m/s), which is physically implausible,
+    so they are tracking errors.
+  * Three "start of play" OUTs fell on the same spot, 1.5 m outside the right sideline where
+    players stand between points: ball handling, not play.
+* **Load.**
+  * The Mac in total was fine: 1.6-1.9 of 4 cores.
+  * The iPhone's worker process hit 100% of a core 63 times after calibration, backlogged up to
+    3.4 s, when candidates reached the cap (8-12 per frame, 15-25 tracks: sun stripes, shadows,
+    players).
+  * Frame drops were 0.1%, all during setup.
+* **Phones.**
+  * iPhone 17 (also the hotspot): "serious" thermal state from minute 25, battery 80% → 30%.
+  * Samsung: "fair", 100% → 71%.
+  * Nothing: nominal.
+  * The Nothing at 30 fps produced 145 reports, against 864 from the iPhone.
+
+**Decision (proposed, not yet built).**
+1. Apply the court-line snap automatically when the lines fit well, and refuse to treat a
+   calibration over 3 px RMS as ready.
+2. Drift tracking: register each snapshot against the calibration frame and re-snap when the
+   camera has moved by more than 3 px. This was checked offline on this session.
+3. Coverage map in the dashboard, including 1 m outside each line, with a warning when only one
+   camera sees outside a line. Aim each camera to include 1-1.5 m beyond its own sideline.
+4. Plausibility gates before speaking:
+   * incoming speed above about 25 m/s → silent;
+   * a single camera viewing a line from beyond about 8 m, nearly edge-on → no single-camera
+     OUT;
+   * "start of play" bounces far outside the court → silent.
+5. Worker backlog: drop stale frames past 0.3 s and tighten the per-frame candidate cap.
+6. Network: don't use a camera phone as the hotspot.
+
+**Next.** Build items 1-5 and replay this session to measure the effect. Then score calls with
+marked contacts.
+
+---
+
+## Current roadmap (as of 2026-11-21)
+
+**Now: make the full-court calls trustworthy (from field test 3)**
+* Auto line snap, drift tracking, a coverage map, plausibility gates for OUT, and a cap on worker
+  backlog (entry 24). Replay `data/field/20261121-071625` before and after.
+
+**Then: validate on real courts**
 1. Mini-court session with marked contacts (20-30 bounces per line, 1-5 cm in and out). This
    gives accuracy ground truth at the line.
 2. Next full-court session with 2 good phones plus weak phones in the empty corners, all at

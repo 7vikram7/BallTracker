@@ -384,3 +384,129 @@ All 93 tests pass. Everything is pushed (`41c45af`), including this session's ba
 - **Reinstall the app on the iPhone 17**, so it gets the data reduction.
 - Charge both phones and keep them out of direct heat.
 - Calibrate both with the same A. If you mark a few bounces with chalk, I can score the calls.
+
+## 2026-11-20 22:41 · request (session 1661f7c3)
+
+> iphone17 is already connected
+> Please install the updated app
+> 
+> Also generate the updated andoird apk if neeeded, 
+> Tomorrow morning I will be testing again on actual court
+> 
+> Will try to plug 4 cameras
+> 
+> My friednds samsung, my freinds one plus, my iphone 17 and another iphone
+> 
+> I hope the installation will be quick on that naother ipohne on the court. 
+> 
+> Also Ill setup my redmi if it doesnt give dark images
+
+### 2026-11-20 22:44 · outcome
+
+The updated app is installed and running on the iPhone 17. The Android APK didn't need rebuilding: no app code has changed since it was built on 19 Nov, and it already has the Samsung tuning and the phone-side data reduction.
+
+**Installing on the other iPhone at the court**
+1. Plug it into the Mac and unlock it.
+2. Run `mobile/scripts/install_ios.sh` in the BallTracker folder.
+3. The script tells the owner when to tap **Trust** and when to turn on **Developer Mode**. Developer Mode restarts the phone; after that it adds the phone to the signing profile, builds, installs and opens the app.
+4. Once, on that phone: **Settings › General › VPN & Device Management** › tap your Apple ID › **Trust**.
+
+I tested the script on your iPhone 17, where it took about 1 minute. A new phone needs another 2–3 minutes. Two things to know:
+- **The Mac needs internet** for the signing step, so join the phone hotspot first.
+- **A free Apple ID can only sign a few devices.** This will be the third, which should work. If it fails, that iPhone can use the browser phone page instead, with no install.
+
+**Samsung and OnePlus:** install the APK tonight if you can. On the court, use the dashboard's **Install the Android app** QR code, or send them this file over WhatsApp as a document: `mobile/android/app/build/outputs/apk/release/app-release.apk`. They'll need to allow "install unknown apps".
+
+**Tomorrow's checklist**
+- **Start with `bt serve --record` and no `--court-scale`.** Tonight used the 0.2 mini court; tomorrow is the full court. `--record` saves everything for the analysis afterwards.
+- **Use the same side A for every camera.** Pick one end (the Mac's end is easiest) and tell everyone. A phone at the far end clicks **B** points, and its "B-left" is on its right. If one gets it wrong anyway, the dashboard now shows **"Calibrated from the other end?"** after about 3 bounces both cameras saw.
+- **Camera placement:** put the two iPhones on opposite corners, with the Samsung and OnePlus in the empty corners. In the simulation, weaker phones added as extras helped close calls.
+- **Redmi:** in daylight it should see the ball, but it's slow (about 25 fps), so treat it as a fifth, extra camera.
+- **Power:** bring power banks. Last night the iPhone 17 ended at 5% and both iPhones got hot, so keep them out of direct sun if you can.
+- **Marks:** if you can, chalk-mark a few bounces near the lines and note the times, so I can score the calls afterwards.
+
+## 2026-11-20 22:47 · request (session 1661f7c3)
+
+> If I add my friends iphone, will I hit the limit of devices on my account?
+
+### 2026-11-20 22:48 · outcome
+
+Probably not. Your friend's iPhone would be the third device, which should be the last free slot.
+
+**What's registered now:** your Apple ID's only signing profile on this Mac includes exactly two phones, the iPhone 17 and the iPhone 16. I found no other profiles.
+
+**The limit:** Apple doesn't publish an exact number for free Apple IDs, but it's commonly reported as 3 devices of each type (here, iPhones). So:
+- Your friend's iPhone should fit as the third.
+- A fifth phone, or a fourth iPhone later, would likely hit the limit. As far as I know, a free account can't remove devices to free up slots before the registration expires. I can't verify that from here.
+
+**If it does hit the limit,** the install script stops with an error that mentions the device limit. Then:
+1. **Use the browser instead.** Your friend opens the phone page from the dashboard's QR code in Safari. It needs no install and works fine as a camera, just with a bit less performance than the app.
+2. **Sign in Xcode with a second Apple ID of yours,** which comes with its own device slots. Don't use your friend's Apple ID; that would mean typing their password on your Mac.
+
+**One thing to know about the iPhone 16:** it stays registered, so it doesn't use a new slot when you reinstall after the 7-day expiry. Reinstalls on any of these phones never count again.
+
+## 2026-11-20 22:49 · request (session 1661f7c3)
+
+> What is the cheapest dedicated camera on the market that can be used for this.
+
+### 2026-11-20 22:50 · outcome
+
+The cheapest thing that works today, with no new software, is **a used phone**. The cheapest *dedicated* hardware is **a Raspberry Pi 5 with the $25 Camera Module 3, about $160 per camera**. That one needs a few days of software work from me, and its speed is unproven.
+
+**What a camera needs for this system:**
+- **At least 120 fps.** In the simulation, 30 fps cameras only helped as extras.
+- **A short exposure,** about 1/1000 s, so the ball isn't a blur.
+- **Ball detection on the camera itself.** The Intel Mac can't decode four live video streams; that overload is why field test 2 dropped 19 000 frames.
+- **Wi-Fi, and an accurate timestamp on every frame.**
+
+Most "cameras" fail one of these:
+- **Action cameras** (GoPro, Akaso and similar) record at 240 fps but can't *stream* live at high frame rates.
+- **Security and IP cameras** run at 25–30 fps with high delay.
+- **USB cameras** need a computer next to them, and USB cables don't reach the court corners.
+
+| Option | Approx. cost per camera | Works today? | Notes |
+|---|---|---|---|
+| **Used phone** (e.g. an older iPhone that films 240 fps slow motion, or a mid-range Android) | roughly $80–150 used | **Yes** | Camera, computer, battery and Wi-Fi in one. Our app already runs on it. |
+| **Raspberry Pi 5 (4GB) + Camera Module 3** | ~$110 + $25 + ~$25 for power, case and SD card ≈ **$160** | No | The camera module does 120 fps at 1536×864, per Raspberry Pi's documentation. Rolling shutter. Needs a Linux version of our phone app (the detector is already C++, so it ports). Unknown: whether the Pi can detect at 120 fps. |
+| Raspberry Pi 5 + Global Shutter Camera | ~$110 + $50–55 ≈ $185 | No | No motion skew, but **60 fps** at full size; more only with a cropped image. |
+| USB camera Arducam OV9782 (colour, global shutter) | ~$60 (₹6–7k), plus a Pi to run it | No | 1280×800 at 100–120 fps. Ends up costing more than the Pi camera. |
+
+Prices are as of today. Raspberry Pi prices have risen several times this year because of memory costs.
+
+**My recommendation:**
+- **For now, use used phones.** If you go the iPhone route, Apple's $99/year Developer Program removes both the ~3-iPhone limit and the 7-day reinstall. With more than 3 iPhones it pays for itself in convenience.
+- **For a permanent club install,** the Pi 5 with Camera Module 3 is the cheap dedicated path. Before buying four, I'd test one: buy a single kit, I write the Linux camera client, and we measure whether it holds 120 fps with detection running.
+
+Sources:
+- [Arducam OV9782 USB camera (Arducam store)](https://www.arducam.com/120fps-global-shutter-color-usb-camera-board-1mp-ov9782-uvc-webcam-module-with-low-distortion-m12-lens-without-microphones-for-computer-laptop-android-device-and-raspberry-pi-arducam.html)
+- [Arducam B0385 at Welectron](https://www.welectron.com/Arducam-B0385-120fps-Global-Shutter-Color-USB-Camera-Board_1)
+- [Arducam OV9782 at The Engineer Store (India)](https://www.theengineerstore.in/products/arducam-120fps-global-shutter-color-usb-camera-board-1mp-ov9782-uvc-webcam-module-with-low-distortion-m12-lens-without-microphones)
+- [2026 Raspberry Pi pricing guide (Mehatronika)](https://magazinmehatronika.com/en/the-2026-raspberry-pi-pricing-and-buying-guide/)
+- [Raspberry Pi price increases (Tom's Hardware)](https://www.tomshardware.com/raspberry-pi/component-shortages-drive-raspberry-pi-prices-up-by-up-to-23-percent-escalating-lpddr4-lpddr5-costs-trigger-the-third-price-hike-of-the-year)
+- [Raspberry Pi 5 price tracker (ChipRadar)](https://chipradar.io/blog/raspberry-pi-5-price-tracker-2026)
+- [Raspberry Pi Global Shutter Camera (PiShop)](https://www.pishop.us/product/raspberry-pi-global-shutter-camera/)
+- [Best Raspberry Pi cameras (RaspberryTips)](https://raspberrytips.com/best-raspberry-pi-camera/)
+- [Raspberry Pi camera comparison](https://raspberry.tips/en/raspberrypi-zubehoer/raspberry-pi-camera-comparison)
+
+## 2026-11-21 07:17 · request (session 1661f7c3)
+
+> started session
+> But my iphone17 stuck on connecting after scanning QR
+
+### 2026-11-21 07:19 · outcome
+
+The iPhone 17 is stuck because it's the hotspot that the Mac is connected to. The camera app on the hotspot phone itself can't reach the Mac.
+
+- **The hotspot is IPv6-only.** It isn't handing out IPv4 addresses: the Mac only has a placeholder (192.0.0.2), so the QR code points to the Mac's public IPv6 address (`2409:…:64b8`).
+- **Other phones on the hotspot reach that address through the iPhone, so they should connect.** I couldn't test this from the Mac.
+- **The iPhone 17's own traffic to that address probably goes out over mobile data instead of to the Mac.** It never arrives, so the app keeps saying "connecting". The server is fine: it's listening on IPv6, the firewall is off, and no connection from the iPhone has reached it.
+
+**Fixes, quickest first:**
+1. **Try the Mac's name instead of the QR code.** In the app's server field, type `MacBook-Pro.local`. The phone then looks up the Mac on the hotspot link, which may get around the problem. It might not, but it takes 10 seconds to try.
+2. **If it's still stuck, make a phone that isn't filming the hotspot,** such as the Redmi or a spare phone. Connect the Mac and all four cameras to it, then rescan the QR code from the dashboard; the address will change.
+   - Last night the iPhone 17 ended at 5% battery and overheating ("serious" thermal state) just from filming. Adding the hotspot on top would make that worse, so moving the hotspot is better anyway.
+   - Keep the hotspot phone plugged in.
+
+After switching the hotspot, the server can stay running. The session is still empty (no events, calibrations or recordings yet), so nothing is lost.
+
+Later I can make the server and app handle this case themselves, for example by also offering the `.local` name. That isn't worth changing on court right now.
