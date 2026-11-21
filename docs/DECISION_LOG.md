@@ -744,6 +744,104 @@ line so lone-camera calls can be scored.
 
 ---
 
+## 27. An outside review of defed68: what was fixed, what was not, and why (2026-11-21)
+
+**Request.** Another agent reviewed origin/main at defed68 and listed 29 items (P0: can speak a
+wrong call or silence a correct one; P1: accuracy and reproducibility; P2: tests and hygiene).
+Implement the ones that hold up; answer the others. Each fix starts from a test that failed
+before it (against 7d6db25, which already had entry 26).
+
+**Fixed** (`tests/test_judge_review.py` unless noted):
+* **A fused OUT one camera itself disputes (TODO-1).** Two cameras within their uncertainties
+  could still fuse to OUT while one of them, on its own, favoured IN. The proposed rule (every
+  camera must itself call OUT) was measured first. On the field-test-3 replay it silences 7 of 27
+  multi-camera calls. In 2 of them the doubtful camera was a coin flip (p_out 0.47, 0.49), and in
+  4 its own estimate was also outside, just less certain. Built instead: silent when any camera's
+  own p_out is below 1/3 (it favours IN 2:1). That catches the review's example (0.31) and the
+  one real case in the session, the 18.6 cm FAULT at 3735.8 s (Samsung 16.5 cm inside, p_out 0.16).
+* **Readiness without an RMS (TODO-2).** A model without a measured RMS, or NaN, is not ready.
+  An explicit `max_rms_px=inf` still means "don't gate" (old sample sessions).
+* **Serve context (TODO-3).** A serve set from the dashboard is used up by the next bounce even
+  when that bounce is suppressed; it could otherwise make a later rally ball in the kitchen a FAULT.
+* **Second bounce without flight data (TODO-4).** If neither bounce has flight data, a later bounce
+  on the same half, further from the net, within the play state's 3 s window is a second bounce.
+  The judge's coarse 1.2 s check stays as it is. Widening it to 3 s for every bounce would also
+  silence real rally bounces whenever the bounce on the other half was missed.
+* **Late reports (TODO-5).** A report arriving after its bounce was decided is dropped and counted
+  (`late_reports`), not judged as a second decision.
+* **Chi-square limit (TODO-7).** The 99.9% quantile for the actual degrees of freedom (18.5 for
+  three cameras, was 27.6).
+* **Serve with the server's half unknown (TODO-8c).** FAULT only if the ball is out of the whole
+  receiving half (long or wide: out whatever the shot was). In the kitchen it stays UNCERTAIN: it
+  may be a rally ball taken for a serve. (This reverses a test from entry 25.)
+* **p_out reproducible (TODO-9).** The Monte Carlo generator is seeded from the bounce itself, so
+  p_out no longer depends on what was called before.
+* **Drift tracking follows pans (TODO-13).** The image motion is a homography, not a similarity:
+  exact for any rotation and for the ground plane under any move. With a similarity, a 3 degree
+  pan left court corners 9 px off (test in `test_field3.py`). A recalibration from moved points
+  rougher than 3 px is not used; the dashboard asks for a new one.
+* **Counted instead of silent:** bounces whose calibration floor could not be added
+  (`no_calib_floor`, TODO-10) and frames skipped for out-of-order timestamps (`skipped_frames`,
+  TODO-15) are in each camera's stats in the session log.
+* **Tests (TODO-20):**
+  * the lone-camera golden test asserts the announce, and its comment says why it is announced;
+  * detector candidates are compared unrounded within exactly the fixture's rounding;
+  * the golden guard catches a 1.2 mm change (was 5 mm);
+  * the ROI test has a positive control;
+  * the browser test's comment matches its 21 fps bar;
+  * the speed-gate test asserts what it means;
+  * the deferral test checks that the deferred search runs when the track ends;
+  * two stale references to a test file that doesn't exist now point to `test_edge.py`.
+* **Skips (TODO-21).** `BT_REQUIRE_ALL=1` turns every skip into a failure, including the C++ leg of
+  the golden detector test.
+* **Base64 (TODO-26).** Characters outside the alphabet are rejected (whitespace is still allowed).
+* `refine_with_bounces` documents that its before/after numbers are in-sample (TODO-29).
+
+**Effect on the field-test-3 replay** (best calibration; no ground truth): 21 OUT and 6 FAULT spoken,
+was 21 and 7 (the 3735.8 s FAULT above). **Golden fixture:** no call moved; p_out changed at two
+bounces, from seeding per call (5.02 s: 0.0135 → 0.0113; 11.12 s: 0.0978 → 0.1088).
+
+**Not done, with reasons:**
+* **TODO-6 (veto whenever any camera that could see the spot is silent).** The part that was a gap,
+  a reporting camera at the edge of its modelled view not counted as seeing, was fixed in entry 26.
+  The rest would let one silent camera overrule two that agree. Even the good cameras catch only
+  50-77% of each other's bounces (entry 26), so that would silence most multi-camera calls. The
+  expected cameras already survive `flush()` (test added).
+* **TODO-8a (z0 lower bound -0.3 m).** Of the 76 recognised serves, the traced height at the
+  baseline has median -0.06 m and is below -0.3 m for 29 (38%), including 2 of the FAULTs: the
+  trace ignores air drag, so it comes out low. That bound would reject real serves. Kept at -2 m.
+  **TODO-8b** (a lob after volleys taken for a serve) was already handled: its trace lands metres
+  below the ground (test added).
+* **TODO-10/11 (floor scaled by RMS; position covariance scale).** Measured in entry 25 from
+  cross-camera residuals: with the 2 px floor, the stated sd matches the disagreement across the
+  sidelines and centre line (robust z-sd 0.99, 0.80 near the centre line), and along the court one
+  pair is 1.6x too tight. A larger factor did not change any spoken call. The "about 3x" in the
+  old roadmap predates the floor. RMS scaling waits for marked contacts.
+* **TODO-12 (far-half bias).** Agreed, and it needs field measurement (marked contacts on the far
+  half). In field test 3 the Samsung's rough calibration and drift explained most of the
+  disagreement on the near half (90 → 17 cm once snapped). The 37 cm left on the far half is the
+  part this item is about.
+* **TODO-15 (frame clock).** Confirmed: with +-4 ms jitter, 12% of frames are skipped at 240 fps and
+  0.5% at 120 fps. A quick fix (grid time on a single glitch) changed nothing, because the skips
+  come from re-anchoring when the jitter is as large as the frame period. Frame numbers can't be
+  taken from such timestamps at all, which is a design change. The clock is only used for browser
+  cameras, which don't reach 240 fps; app cameras use sensor timestamps. Skips are counted now.
+* **TODO-14, 16, 17, 18, 19, 27 (replay of load decisions, detector parity on a stopped ball,
+  clutter tracks, flush on stalls, per-camera processed coverage, reducer in busy scenes).**
+  Agreed as real issues. Each is a design change with its own investigation, so they go on the
+  roadmap rather than being rushed before a field session.
+* **TODO-22 (native builds in CI).** There is no CI yet. `BT_REQUIRE_ALL=1` is the first step.
+* **TODO-23-25 (phone app: capture rate and clock source, Android native errors, an iOS data
+  race and buffer hold).** Agreed. They need an app rebuild and reinstall on every phone, so they
+  wait until after the next field session. The server already shows each camera's measured
+  frame rate.
+* **TODO-28.** `build/` is gitignored, so the runtime C++ build doesn't touch the repository. The
+  evolution log's publication is the owner's decision and stays as is (entry 26). The `Prompt`
+  file and the auto-commit hook are the owner's to keep or drop. Commit messages: entry 25 records
+  the 22aef8d mismatch.
+
+---
+
 ## Current roadmap (as of 2026-11-21)
 
 **Now: confirm on court (entries 24-25 are built)**
@@ -764,6 +862,10 @@ line so lone-camera calls can be scored.
 4. Calibrate every camera with the same side A; confirm the "other end" check on the dashboard.
 
 **Next: accuracy and trust**
+* From the review of defed68 (entry 27): frame numbering for jittery timestamps; replay of
+  load-dependent decisions; Mac and phone detector parity on a stopped ball; track-level
+  ball-likeness against clutter; no flush on short stalls; per-camera processed coverage; phone
+  app fixes (measured fps, clock source, native errors, iOS race).
 * Far-half calibration bias under 10 cm (shared-bounce refinement, more cameras).
 * Calibrated uncertainties: with the 2 px floor they match the cameras' disagreement across the
   sidelines and centre line; along the court one camera pair is still 1.6x too tight. Errors

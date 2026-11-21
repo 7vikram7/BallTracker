@@ -139,7 +139,11 @@ def refine_with_bounces(camera: Camera, court: CourtSpec, keypoints_px: dict[str
     ``max_pair_err_m`` is generous on purpose: pairs come from bounces the judge already grouped
     as one event, and the biases this fixes are large (field test 2: the Samsung put far-half
     bounces 0.7-1.5 m from where the iPhone did; refining from 15 shared bounces cut that to
-    21-49 cm on held-out bounces)."""
+    21-49 cm on held-out bounces, in an offline experiment).
+
+    Note: ``before_cm`` / ``after_cm`` here are measured on the same bounces the refinement was
+    fitted to (in-sample), so they flatter the result; the held-out figure above is the honest
+    one."""
     if not pairs.pairs:
         return None
     r = court.ball_radius

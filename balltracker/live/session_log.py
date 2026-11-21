@@ -104,6 +104,7 @@ def camera_health(c) -> dict:
         "check_ms_per_s": c.stats.get("check_ms_per_s"),
         # backlog guard: frames whose periodic bounce check was skipped / frames dropped as stale
         "deferred_frames": c.stats.get("deferred_frames"), "dropped_stale": c.stats.get("dropped_stale"),
+        "no_calib_floor": c.stats.get("no_calib_floor"), "skipped_frames": c.stats.get("skipped_frames"),
         "calib_rms_px": c.camera.reprojection_rms_px if c.camera else None,
         "phone": c.phone_stats,
     }

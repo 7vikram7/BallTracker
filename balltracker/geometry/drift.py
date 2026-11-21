@@ -10,8 +10,8 @@ How it works:
 * At calibration the server keeps a *reference*: the calibration frame, downscaled to grey, with
   ORB features.
 * Every few seconds the latest snapshot is matched against it. Players move, the court, net,
-  fences and walls do not, so RANSAC on a similarity transform (shift, rotation, zoom) finds the
-  camera's motion from the static background.
+  fences and walls do not, so RANSAC on a homography finds the camera's motion from the static
+  background.
 * The transform moves the calibration's keypoints. ``DriftTracker`` always compares with the
   original calibration frame (re-referencing after each correction let matching noise add up:
   73 corrections in an hour on the field-test recording) and acts when the points' median
@@ -21,9 +21,12 @@ How it works:
   ``max_move_px``, or too few background matches: the dashboard asks for a recalibration
   instead of guessing.
 
-A pure image transform is exact for a camera that only rotates (a phone turning on its mount);
-for a small shift of the camera's position it is a good approximation of the ground plane's
-motion, and the line snap corrects the rest.
+A homography is exact for every point when the camera only rotates (a phone turning or tilting
+on its mount), and exact for the ground plane under any camera move; off-plane background is
+then slightly off, which RANSAC tolerates and the line snap corrects. (Until the review of
+defed68 this was a similarity transform, which a pan is not: 3 degrees of pan left court corners
+9 px off.) A recalibration rougher than ``max_rms_px`` is not used: the dashboard asks for a new
+one instead.
 """
 
 from __future__ import annotations
@@ -46,6 +49,7 @@ class DriftConfig:
     max_move_px: float = 80.0      # moved more: don't follow automatically, ask for a recalibration
     snap_max_fit_px: float = 1.5   # use the line snap only if the lines fit this well ...
     snap_max_change_px: float = 6.0  # ... and it agrees with the moved points this closely
+    max_rms_px: float = 3.0        # a recalibration rougher than this is not used (upkeep.MAX_RMS_PX)
 
 
 class DriftReference:
@@ -76,8 +80,8 @@ def _grey(img: np.ndarray, k: float) -> np.ndarray:
 
 
 def estimate_motion(ref: DriftReference, img: np.ndarray) -> dict | None:
-    """Similarity transform reference -> current image (full-resolution pixels), or None when
-    the background can't be matched. -> {"A": 2x3, "inliers": n, "matches": m}"""
+    """Homography reference -> current image (full-resolution pixels), or None when the
+    background can't be matched. -> {"H": 3x3, "inliers": n, "matches": m}"""
     import cv2
 
     if not ref.usable or (img.shape[1], img.shape[0]) != ref.size:
@@ -90,20 +94,22 @@ def estimate_motion(ref: DriftReference, img: np.ndarray) -> dict | None:
         return None
     p0 = np.float32([ref.kp[x.queryIdx].pt for x in m]) / ref.k
     p1 = np.float32([kp[x.trainIdx].pt for x in m]) / ref.k
-    A, inl = cv2.estimateAffinePartial2D(p0, p1, method=cv2.RANSAC, ransacReprojThreshold=ref.cfg.ransac_px,
-                                         maxIters=4000, confidence=0.999)
-    if A is None or inl is None or int(inl.sum()) < ref.cfg.min_inliers:
+    H, inl = cv2.findHomography(p0, p1, cv2.RANSAC, ref.cfg.ransac_px, maxIters=4000, confidence=0.999)
+    if H is None or inl is None or int(inl.sum()) < ref.cfg.min_inliers:
         return None
-    return {"A": A, "inliers": int(inl.sum()), "matches": len(m)}
+    return {"H": H, "inliers": int(inl.sum()), "matches": len(m)}
 
 
-def move_points(A: np.ndarray, points: dict[str, list[float]]) -> dict[str, list[float]]:
-    return {k: [float(A[0, 0] * u + A[0, 1] * v + A[0, 2]), float(A[1, 0] * u + A[1, 1] * v + A[1, 2])]
-            for k, (u, v) in points.items()}
+def move_points(H: np.ndarray, points: dict[str, list[float]]) -> dict[str, list[float]]:
+    out = {}
+    for k, (u, v) in points.items():
+        x, y, w = H @ np.array([u, v, 1.0])
+        out[k] = [float(x / w), float(y / w)]
+    return out
 
 
-def max_shift_px(A: np.ndarray, points: dict[str, list[float]]) -> float:
-    moved = move_points(A, points)
+def max_shift_px(H: np.ndarray, points: dict[str, list[float]]) -> float:
+    moved = move_points(H, points)
     return max((float(np.hypot(moved[k][0] - u, moved[k][1] - v)) for k, (u, v) in points.items()), default=0.0)
 
 
@@ -120,37 +126,16 @@ def check_drift(ref: DriftReference, img: np.ndarray, court: CourtSpec, camera: 
     mot = estimate_motion(ref, img)
     if mot is None:
         return {"status": "lost"}
-    A = mot["A"]
-    moved_px = max_shift_px(A, points)
+    moved_px = max_shift_px(mot["H"], points)
     base = {"moved_px": round(moved_px, 1), "inliers": mot["inliers"]}
     if moved_px < cfg.min_move_px:
         return {"status": "steady", **base}
     if moved_px > cfg.max_move_px:
         return {"status": "big", **base}
-    new_pts = move_points(A, points)
-    how = "image motion"
-    if snap:
-        from .autocal import refine_from
-
-        try:
-            res = refine_from(img, court, new_pts)
-        except Exception:  # pragma: no cover - a failed snap must not stop the tracking
-            res = None
-        if res is not None and res.ok and (res.debug or {}).get("fit_px", 99) <= cfg.snap_max_fit_px:
-            common = [k for k in res.points if k in new_pts]
-            if common and np.median([np.hypot(*(np.array(res.points[k]) - np.array(new_pts[k]))) for k in common]) \
-                    <= cfg.snap_max_change_px:
-                new_pts = {k: [float(a), float(b)] for k, (a, b) in res.points.items()}
-                how = "image motion + line snap"
-    kp = court.keypoints()
-    names = [k for k in new_pts if k in kp]
-    try:
-        cam = calibrate_from_points(np.array([kp[k] for k in names], float), np.array([new_pts[k] for k in names], float),
-                                    tuple(camera.image_size), camera_id=camera.camera_id,
-                                    estimate_focal=len(names) >= 6)
-    except CalibrationError:
+    res = _recalibrate(img, court, camera, move_points(mot["H"], points), snap, cfg)
+    if res is None:
         return {"status": "big", **base}
-    return {"status": "moved", **base, "points": {k: new_pts[k] for k in names}, "camera": cam, "how": how}
+    return {"status": "moved", **base, **res}
 
 
 def _median_dist(a: dict[str, list[float]], b: dict[str, list[float]]) -> float:
@@ -175,8 +160,8 @@ class DriftTracker:
         mot = estimate_motion(self.ref, img)
         if mot is None:
             return {"status": "lost"}
-        moved = move_points(mot["A"], self.base)
-        total = max_shift_px(mot["A"], self.base)
+        moved = move_points(mot["H"], self.base)
+        total = max_shift_px(mot["H"], self.base)
         change = _median_dist(moved, self.applied)
         base = {"moved_px": round(change, 1), "total_px": round(total, 1), "inliers": mot["inliers"]}
         if total > cfg.max_move_px:
@@ -216,4 +201,6 @@ def _recalibrate(img, court, camera, new_pts, snap, cfg) -> dict | None:
                                     tuple(camera.image_size), camera_id=camera.camera_id, estimate_focal=len(names) >= 6)
     except CalibrationError:
         return None
+    if not (cam.reprojection_rms_px is not None and cam.reprojection_rms_px <= cfg.max_rms_px):
+        return None  # the moved points don't fit one camera: ask for a recalibration
     return {"points": {k: new_pts[k] for k in names}, "camera": cam, "how": how}

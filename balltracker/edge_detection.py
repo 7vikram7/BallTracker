@@ -3,7 +3,7 @@
 The native app (mobile/modules/ball-camera/cpp/ballcore) runs a C++ port of
 exactly this algorithm on the phone. This file is the specification: every
 step uses integer maths or float32 operations in a fixed order, so the C++
-port can reproduce it and ``tests/test_ballcore_parity.py`` checks that it does.
+port can reproduce it and ``tests/test_edge.py`` (``test_cpp_detector_matches_python_reference``) checks that it does.
 
 It is the same idea as ``MotionColorBallDetector`` (moving AND ball-coloured
 pixels -> blobs -> refined centroid), with two changes so it is cheap enough

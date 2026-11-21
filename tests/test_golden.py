@@ -7,6 +7,7 @@ The accuracy checks against synthetic truth must still pass after regenerating.
 """
 
 import json
+import os
 import shutil
 from pathlib import Path
 
@@ -65,15 +66,14 @@ def test_replay_with_one_camera_missing(tmp_path):
     exp = json.loads((GOLDEN / "edge_rally" / "expected.json").read_text())
     d = tmp_path / "s"
     shutil.copytree(GOLDEN / "edge_rally", d)
-    # Drop camera 2 entirely: decisions become single-camera and the OUT must stay silent
-    # (corroboration: the second camera could see it).
+    # Drop camera 2 entirely: decisions become single-camera. Camera 2 has no recording, so it is
+    # not an expected camera and can't veto: the lone OUT is still called (and announced).
     shutil.rmtree(d / "sim-side_mid")
     res = replay(d)
     assert all(len(x["cameras"]) == 1 for x in res["decisions"])
     out_t = [e["t"] for e in exp if e["result"] == "OUT"]
     assert out_t, "fixture should contain an OUT"
-    # (camera 2 has no recording, so it isn't an expected camera: a lone OUT can still be called)
-    assert any(abs(x["t"] - out_t[0]) < 0.01 and x["result"] == "OUT" for x in res["decisions"])
+    assert any(abs(x["t"] - out_t[0]) < 0.01 and x["result"] == "OUT" and x["announce"] for x in res["decisions"])
 
 
 def test_phone_detector_golden_python_and_cpp():
@@ -87,12 +87,16 @@ def test_phone_detector_golden_python_and_cpp():
         from balltracker.ballcore import NativeDetector
 
         dets.append(("c++", NativeDetector(EdgeDetectorConfig(fps=60))))
+    elif os.environ.get("BT_REQUIRE_ALL") == "1":
+        pytest.fail("no C++ compiler: the C++ leg of this test can't run (BT_REQUIRE_ALL=1)")
     for name, det in dets:
         for i, (img, e) in enumerate(zip(frames, exp)):
-            got = [[round(c.u, 2), round(c.v, 2), round(c.radius_px, 2), round(c.score, 3)] for c in det.detect(img)]
+            got = [[c.u, c.v, c.radius_px, c.score] for c in det.detect(img)]
             assert len(got) == len(e), f"{name}: frame {i}: {len(got)} candidates, expected {len(e)}. {HOW}"
+            # the fixture stores u, v, r to 0.01 px and score to 0.001: allow exactly that rounding
+            tol = np.array([0.005, 0.005, 0.005, 0.0005]) + 1e-6
             for g, x in zip(sorted(got), sorted(e)):
-                assert np.allclose(g, x, atol=0.011), f"{name}: frame {i}: {g} != {x}. {HOW}"
+                assert np.all(np.abs(np.array(g) - np.array(x)) <= tol), f"{name}: frame {i}: {g} != {x}. {HOW}"
 
 
 def test_protocol_bytes_are_frozen():
@@ -108,13 +112,14 @@ def test_protocol_bytes_are_frozen():
 
 
 def test_golden_check_catches_a_small_logic_change(tmp_path):
-    """Guard for the guard: a 5 mm change in geometry must break the frozen-rally comparison."""
+    """Guard for the guard: a 1.2 mm change in geometry must break the frozen-rally comparison (the
+    documented bar is 1 mm)."""
     from balltracker.live.replay import compare, replay
 
     d = tmp_path / "s"
     shutil.copytree(GOLDEN / "edge_rally", d)
     court = json.loads((d / "court.json").read_text())
-    court["ball_radius"] = court["ball_radius"] + 0.005
+    court["ball_radius"] = court["ball_radius"] + 0.0012
     (d / "court.json").write_text(json.dumps(court))
     exp = json.loads((GOLDEN / "edge_rally" / "expected.json").read_text())
     c = compare(exp, replay(d)["decisions"], moved_cm=0.1)

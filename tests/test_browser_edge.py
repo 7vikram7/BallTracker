@@ -137,8 +137,8 @@ def test_phone_page_on_phone_detection_end_to_end(tmp_path):
     assert info["mode"] == "edge" and info["ready"], info
     assert not info["exceptions"], info["exceptions"]
     c = srv.cams[name]
-    # Headless Chrome on the 2020 Intel Mac processes ~27 of 60 fps at 960x540 (detect ~11 ms + pixel copy);
-    # the page drops the rest by design. Require at least ~12 fps processed (CPU load varies).
+    # The page drops frames it can't keep up with, by design. The clip plays twice at 30 fps; require
+    # 70% of its frames processed (21 fps), which the 2020 Intel Mac's headless Chrome manages.
     assert c.mode == "edge" and c.frames_in > 0.7 * fps * 2 * clip_s, (c.frames_in, info)
     assert c.latest_jpeg is not None and c.latest_size == (W, H)  # previews arrived at detection resolution
     decisions = [d for d in srv.all_decisions if not d.get("suppressed")]

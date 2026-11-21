@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -33,3 +36,17 @@ def pytest_sessionfinish(session, exitstatus):
         mod.record_pass(session.testscollected)
     except Exception:  # never let bookkeeping fail the test run
         pass
+
+
+# BT_REQUIRE_ALL=1: a skipped test fails instead (no C++ compiler, node, Chrome or data on this
+# machine would otherwise pass silently). For CI and for checking a new machine.
+REQUIRE_ALL = os.environ.get("BT_REQUIRE_ALL") == "1"
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    outcome = yield
+    rep = outcome.get_result()
+    if REQUIRE_ALL and rep.skipped and not hasattr(rep, "wasxfail"):
+        rep.outcome = "failed"
+        rep.longrepr = f"skipped, but BT_REQUIRE_ALL=1: {rep.longrepr}"

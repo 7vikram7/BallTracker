@@ -13,12 +13,19 @@ so a camera that sees the bounce well (small covariance) dominates. If the
 cameras disagree by more than their uncertainties allow (chi-square test on
 the residuals), the fused covariance is inflated by the excess, and the call
 is announced only if every camera on its own report makes the same call;
-otherwise it is UNCERTAIN (silent) rather than confidently wrong. (Inflation
+otherwise it is UNCERTAIN (silent) rather than confidently wrong. Even without
+inflation, a fused OUT is silent if one camera's own report favours IN by 2:1
+(its own p(out) < ``lean_in_p``): a precise camera saying OUT and a vague one
+saying "probably in" fuse to OUT, and that is not certain enough to speak. A
+camera that can't tell (p(out) near 0.5) does not block. The chi-square limit
+is the 99.9% quantile for the actual degrees of freedom (2 per extra camera). (Inflation
 alone is not enough: a covariance much bigger than the court puts most of the
 probability outside it, i.e. p(out) -> 1.)
 
 A group is released ``hold_s`` after its first report arrived (waiting for
-slower cameras), or immediately once every calibrated camera has reported.
+slower cameras), or immediately once every calibrated camera has reported. A
+report arriving after its bounce was decided is dropped and counted
+(``late_reports``): judged alone it would make a second decision for one bounce.
 
 Corroboration: if two or more calibrated cameras can see the bounce point but
 only one reported a bounce, an OUT is downgraded to UNCERTAIN (silent). A
@@ -68,7 +75,14 @@ from .playstate import PlayConfig, PlayState
 
 ALGO = "bounce_fusion"
 ALGO_VERSION = "0.1.0"
-CHI2_2DOF_999 = 13.8  # 99.9% quantile, 2 degrees of freedom
+CHI2_2DOF_999 = 13.8  # 99.9% quantile, 2 degrees of freedom (two cameras)
+
+
+def chi2_limit(dof: int) -> float:
+    """99.9% quantile of chi-square with ``dof`` degrees of freedom (13.8 for 2, 18.5 for 4)."""
+    from scipy.stats import chi2
+
+    return float(chi2.ppf(0.999, dof))
 
 
 def fuse(events: list[BounceEvent]) -> tuple[BounceEvent, dict]:
@@ -84,7 +98,7 @@ def fuse(events: list[BounceEvent]) -> tuple[BounceEvent, dict]:
     dof = 2 * (len(events) - 1)
     # Inflate if the spread exceeds what the covariances allow (keeps the call honest).
     expected = max(dof, 1)
-    limit = CHI2_2DOF_999 * dof / 2
+    limit = chi2_limit(dof)
     inflation = 1.0 if chi2 <= limit else chi2 / expected
     P = P * inflation
     w = np.array([1.0 / max(e.t_std, 1e-4) ** 2 for e in events])
@@ -168,12 +182,14 @@ class LiveJudge:
                  can_see: Callable[[str, float, float], bool] | None = None, corroborate: bool = True,
                  play: PlayConfig | None = None, max_single_camera_std_m: float = 0.15,
                  view: Callable[[str, float, float], tuple[float, np.ndarray] | None] | None = None,
-                 single_view_max_m: float = 8.0, far_out_m: float = 1.0, weak_rate: float = 0.4):
+                 single_view_max_m: float = 8.0, far_out_m: float = 1.0, weak_rate: float = 0.4,
+                 lean_in_p: float = 1 / 3):
         self.court = court
         scale = float(getattr(court, "scale", 1.0) or 1.0)
         # a silent camera that rarely catches bounces at that distance doesn't veto (module docstring)
         self.recall = CameraRecall(scale)
         self.weak_rate = weak_rate
+        self.lean_in_p = lean_in_p  # a camera whose own p(out) is below this blocks a fused OUT
         # is the ball in play? serve? (see playstate.py; thresholds follow the court's scale)
         self.play = PlayState(play or PlayConfig.for_scale(scale), court)
         # view(camera, x, y) -> (distance m, horizontal unit vector camera -> point), or None
@@ -190,11 +206,19 @@ class LiveJudge:
         self.window_s = window_s
         self.hold_s = hold_s
         self._groups: list[_Group] = []
+        self._released: list[float] = []  # times of recently decided groups (late reports join none)
+        self.late_reports = 0
         self._last: BounceEvent | None = None
         self.serve: ServeContext | None = None  # applies to the next bounce only
 
     def add(self, ev: BounceEvent, now: float) -> None:
         cam = set(ev.camera_ids)
+        if any(abs(t - ev.t) <= self.window_s for t in self._released) and \
+                not any(abs(g.t - ev.t) <= self.window_s for g in self._groups):
+            # Its bounce was already decided without it (the report arrived after hold_s). Judging
+            # it alone would make a second decision for one bounce, so it is dropped (counted).
+            self.late_reports += 1
+            return
         for g in self._groups:
             if abs(g.t - ev.t) <= self.window_s:
                 same = [e for e in g.events if set(e.camera_ids) & cam]
@@ -218,6 +242,10 @@ class LiveJudge:
         out = []
         for g in sorted(ready, key=lambda g: g.t):
             out.append(self._decide(g))
+            self._released.append(g.t)
+        if ready:  # keep a few seconds of released groups (reports arrive within ~1 s)
+            last = max(g.t for g in ready)
+            self._released = [t for t in self._released if last - t <= 10.0]
         return out
 
     def flush(self) -> list[Decision]:
@@ -225,6 +253,9 @@ class LiveJudge:
 
     def _decide(self, g: _Group) -> Decision:
         b, diag = fuse(g.events)
+        # A serve context set from the dashboard applies to the next bounce only, whatever happens
+        # to that bounce (suppressed or not); otherwise it would be applied to a later rally ball.
+        serve, self.serve = self.serve, None
         prev = self._last
         if prev is not None:
             same_half = np.sign(prev.position.y) == np.sign(b.position.y)
@@ -234,7 +265,6 @@ class LiveJudge:
                 self.play.assess(b, list(g.events), False)  # keep the bounce chain for the play state
                 return Decision(b, None, list(g.events), diag, suppressed="secondary bounce")
         self._last = b
-        serve, self.serve = self.serve, None
         ps = self.play.assess(b, list(g.events), serve is not None) if self.play.cfg.enabled else None
         if ps is not None:
             diag = {**diag, "play": ps["play"], "h_in_mps": ps["h_in_mps"], "vz_in_mps": ps.get("vz_in_mps"),
@@ -256,6 +286,14 @@ class LiveJudge:
             if not all(c.announce and c.result == call.result for c in own):
                 call = call.model_copy(update={"result": CallResult.UNCERTAIN, "announce": False, "call_text": None})
                 diag = {**diag, "cameras_disagree": True}
+        if call.announce and len(g.events) > 1 and diag.get("inflation", 1.0) <= 1.0:
+            # The cameras agree within their uncertainties, but one of them may still, on its own,
+            # favour the other side of the line: a precise camera saying OUT and a vague one saying
+            # "probably in" fuse to OUT. Silent if any camera's own p(out) < lean_in_p.
+            own_p = [self.caller.call(e, serve).p_out for e in g.events]
+            if min(own_p) < self.lean_in_p:
+                call = call.model_copy(update={"result": CallResult.UNCERTAIN, "announce": False, "call_text": None})
+                diag = {**diag, "cameras_disagree": True, "own_p_out": [round(p, 3) for p in own_p]}
         if ps is not None and not ps["announce_ok"] and call.announce:
             # A bounce, but not of a ball in play (dead ball / not clearly a shot): stay silent.
             call = call.model_copy(update={"result": CallResult.UNCERTAIN, "announce": False, "call_text": None})

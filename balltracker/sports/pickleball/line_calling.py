@@ -38,6 +38,7 @@ Known gaps (explicit, not hidden)
 
 from __future__ import annotations
 
+import zlib
 from dataclasses import dataclass
 
 import numpy as np
@@ -80,7 +81,12 @@ class PickleballLineCaller:
     def __init__(self, court: CourtSpec, cfg: LineCallConfig | None = None):
         self.court = court
         self.cfg = cfg or LineCallConfig()
-        self._rng = np.random.default_rng(self.cfg.seed)
+
+    def _rng_for(self, bounce: BounceEvent) -> np.random.Generator:
+        """A generator seeded from the bounce itself: the same bounce gets the same p_out whatever
+        was called before it (one shared generator made p_out depend on the call history)."""
+        key = f"{bounce.t:.3f}:{bounce.position.x:.4f}:{bounce.position.y:.4f}:{self.cfg.seed}"
+        return np.random.default_rng(zlib.crc32(key.encode()))
 
     def provenance(self) -> Provenance:
         c = self.cfg
@@ -111,7 +117,18 @@ class PickleballLineCaller:
         c = self.cfg
         rect, region, ctx = self.target_for(bounce, serve)
         mean = np.array([bounce.position.x, bounce.position.y])
-        p_out = p_outside(rect, mean, np.array(bounce.cov_xy), self.court.contact_patch_radius, c.samples, self._rng)
+        p_out = p_outside(rect, mean, np.array(bounce.cov_xy), self.court.contact_patch_radius, c.samples,
+                          self._rng_for(bounce))
+        if ctx is ShotContext.SERVE and serve is not None and serve.service_side is None and p_out >= c.out_threshold:
+            # The server's half is unknown, so the target is the whole service area. Only call the
+            # FAULT if the ball is out of the receiving half altogether (long or wide: out whatever
+            # the shot was). In the kitchen it may be a rally ball taken for a serve (a dink: IN).
+            half = self.court.half_rect(serve.server_side.other)
+            p_half = p_outside(half, mean, np.array(bounce.cov_xy), self.court.contact_patch_radius, c.samples,
+                               self._rng_for(bounce))
+            if p_half < c.out_threshold:
+                p_out = min(p_out, c.out_threshold - 1e-6)  # -> UNCERTAIN below
+                region = region + "_kitchen_unknown_side"
         if p_out >= c.out_threshold:
             result = CallResult.OUT
         elif p_out <= c.in_threshold:

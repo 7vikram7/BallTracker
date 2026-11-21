@@ -190,3 +190,10 @@ test('wire format matches the frozen bytes shared with the Python server (tests/
   const got = Buffer.from(packDetections(inp)).toString('hex');
   assert.equal(got, hex, 'protocol.js differs from balltracker/live/protocol.py');
 });
+
+test('base64 decoding rejects characters outside the alphabet', () => {
+  // U+0100 used to index past the lookup table and add six zero bits silently (review of defed68)
+  assert.throws(() => base64ToBytes('QUJDĀREVG'), /base64/);
+  assert.throws(() => base64ToBytes('QUJD!REVG'), /base64/);
+  assert.deepEqual(base64ToBytes('QUJD\r\n REVG\t'), new Uint8Array([65, 66, 67, 68, 69, 70]));  // whitespace is fine
+});

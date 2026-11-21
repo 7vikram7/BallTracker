@@ -15,6 +15,8 @@ Field test 3 (2026-11-21):
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 
 from ..geometry.camera import Camera, CalibrationError, calibrate_from_points
@@ -27,7 +29,14 @@ SNAP_MAX_MOVE_PX = 30.0   # ... and it moves the points by at most this much (me
 
 
 def calibration_ready(camera: Camera | None, max_rms_px: float = MAX_RMS_PX) -> bool:
-    return camera is not None and float(camera.reprojection_rms_px or 0.0) <= max_rms_px
+    """A calibration good enough for calls. Without a measured RMS (a model not fitted to clicks)
+    it is not ready, unless ``max_rms_px`` is infinite: an explicit "don't gate"."""
+    if camera is None:
+        return False
+    if math.isinf(max_rms_px):
+        return True
+    rms = camera.reprojection_rms_px
+    return rms is not None and math.isfinite(rms) and rms <= max_rms_px
 
 
 def auto_snap(img: np.ndarray, court: CourtSpec, camera: Camera) -> dict | None:

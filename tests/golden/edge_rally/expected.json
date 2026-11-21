@@ -26,7 +26,7 @@
   "text": null,
   "line": "sideline_right",
   "distance_cm": -5.52512,
-  "p_out": 0.0135,
+  "p_out": 0.01125,
   "suppressed": null,
   "unconfirmed_by": null,
   "cameras": [
@@ -98,7 +98,7 @@
   "text": null,
   "line": "sideline_right",
   "distance_cm": -3.23822,
-  "p_out": 0.09775,
+  "p_out": 0.10875,
   "suppressed": null,
   "unconfirmed_by": null,
   "cameras": [

@@ -3,7 +3,7 @@
  *
  * A C++ port of balltracker/edge_detection.py (the reference). Same steps, same
  * integer maths and float32 operation order, so results match the Python
- * implementation; tests/test_ballcore_parity.py checks this on recorded video.
+ * implementation; tests/test_edge.py (test_cpp_detector_matches_python_reference) checks this on synthetic frames.
  *
  * Build with -ffp-contract=off (no fused multiply-add), otherwise ARM compilers
  * fuse a*b+c and the background model drifts from the reference by rounding.

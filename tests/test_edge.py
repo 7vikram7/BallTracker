@@ -74,6 +74,9 @@ def test_cpp_detector_respects_roi_and_reset():
 
     frames = _synthetic_frames(n=90)
     h, w = frames[0].shape[:2]
+    full = np.full((h, w), 255, np.uint8)  # positive control: the same frames with a full ROI give hits
+    for det in (NativeDetector(EdgeDetectorConfig(fps=60, roi_mask=full)), EdgeBallDetector(EdgeDetectorConfig(fps=60, roi_mask=full))):
+        assert sum(bool(det.detect(f)) for f in frames) > 30
     roi = np.zeros((h, w), np.uint8)  # search nowhere
     nat = NativeDetector(EdgeDetectorConfig(fps=60, roi_mask=roi))
     assert all(not nat.detect(f) for f in frames)

@@ -63,13 +63,14 @@ def test_a_serve_over_the_centre_line_into_the_wrong_court_is_a_fault():
     assert d.call.nearest_line.startswith("centreline")
 
 
-def test_a_serve_into_the_kitchen_is_a_fault_even_when_the_servers_half_is_unknown():
+def test_a_serve_into_the_kitchen_with_the_servers_half_unknown_is_not_called():
     hl = COURT.half_l
-    # served from the middle of baseline A: half unknown; lands in B's kitchen
+    # served from the middle of baseline A: half unknown; lands in B's kitchen. It could be a rally
+    # ball taken for a serve (a dink, IN), so it stays silent (review of defed68, TODO-8; entry 27).
     d = judge([bounce(10.0, 0.5, 1.2, serve_flight(0.05, -hl - 0.3, 0.5, 1.2, z0=0.9, h=7.0))])[0]
     assert d.diagnostics["play"] == "serve" and d.diagnostics["serve"]["service_side"] is None
-    assert d.call.target_region == "service_area_B"
-    assert d.call.announce and d.call.call_text == "FAULT"
+    assert d.call.target_region.startswith("service_area_B")
+    assert d.call.result.value == "UNCERTAIN" and not d.call.announce
 
 
 def test_the_pre_serve_bounce_tells_the_servers_half_when_the_flight_does_not():
@@ -116,7 +117,8 @@ def test_an_impossibly_fast_ball_is_not_announced():
     # a fast but uncertain single-camera speed is not by itself impossible
     b2 = bounce(20.0, 3.8, 2.0, (30.0, 5.0, -6.0), vstd=6.0)
     d2 = judge([b2])[0]
-    assert "implausible" not in str(d2.diagnostics.get("gate"))
+    gate = d2.diagnostics.get("gate")
+    assert gate is None or "implausible" not in gate  # no speed gate (another gate may apply)
 
 
 def test_start_of_play_far_outside_the_court_is_ball_handling():
@@ -263,6 +265,8 @@ def test_a_worker_that_is_behind_defers_bounce_checks_until_tracks_end():
                                 (1280, 720))
     d = pipe.pop_diagnostics()
     assert d["checks"] == 0 and d["deferred_frames"] > 0
+    pipe.flush()  # the track ends: its bounce search runs then, deferred or not
+    assert pipe.pop_diagnostics()["checks"] > 0
 
 
 # --- a weak camera's silence (entry 26) ----------------------------------------------------------
@@ -318,3 +322,29 @@ def test_lone_camera_with_unmeasured_flight_is_not_announced():
     unmeasured = {"play": "rally", "h_in_lo_mps": -67.0, "h_in_mps": 60.0}  # field 3, 2026-11-21 at 2610.9 s
     assert "flight not measured" in j._gate(b1, call, unmeasured)
     assert j._gate(b2, call, unmeasured) is None
+
+
+def test_drift_tracker_follows_a_pan_exactly():
+    """A pan is a homography of the image, not a similarity (review of defed68, TODO-13)."""
+    import cv2
+
+    from balltracker.geometry.drift import DriftConfig, DriftTracker
+
+    cam = Camera.look_at(position=[-4.6, -9.5, 2.4], target=[0.5, 0.0, 0.0], image_size=(960, 540), hfov_deg=70)
+    cam.reprojection_rms_px = 0.5
+    kp = COURT.keypoints()
+    pts = {k: list(map(float, cam.project(np.array([v]))[0])) for k, v in kp.items()
+           if 0 <= cam.project(np.array([v]))[0][0] < 960 and 0 <= cam.project(np.array([v]))[0][1] < 540}
+    a = np.deg2rad(3.0)  # pan 3 degrees about the camera's vertical axis
+    Rp = np.array([[np.cos(a), 0, np.sin(a)], [0, 1, 0], [-np.sin(a), 0, np.cos(a)]])
+    H = cam.K @ Rp @ np.linalg.inv(cam.K)
+    img0 = _scene()
+    img1 = cv2.warpPerspective(img0, H, (960, 540))
+    panned = Camera(K=cam.K, dist=cam.dist, R=Rp @ cam.R, t=Rp @ cam.t, image_size=cam.image_size)
+    tr = DriftTracker(img0, pts, DriftConfig(work_width=960, min_inliers=40))
+    assert tr.check(img1, COURT, cam, snap=False)["status"] == "pending"
+    res = tr.check(img1, COURT, cam, snap=False)
+    assert res["status"] == "moved"
+    for k, (u, v) in res["points"].items():
+        assert np.hypot(*(np.array([u, v]) - panned.project(np.array([kp[k]]))[0])) < 1.5, k
+    assert res["camera"].reprojection_rms_px < 1.5

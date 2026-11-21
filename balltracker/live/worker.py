@@ -94,7 +94,8 @@ class LiveCameraPipeline:
         d, n = self.diag, max(self.diag["frames"], 1)
         out = {"cands_per_frame": round(d["cands"] / n, 2), "max_tracks": d["max_tracks"],
                "check_ms_per_s": round(1e3 * d["check_s"], 1), "checks": d["checks"],
-               "deferred_frames": d.get("deferred", 0), "dropped_stale": d.get("dropped_stale", 0)}
+               "deferred_frames": d.get("deferred", 0), "dropped_stale": d.get("dropped_stale", 0),
+               "no_calib_floor": d.get("no_calib_floor", 0), "skipped_frames": d.get("skipped_frames", 0)}
         self.diag = {"frames": 0, "cands": 0, "max_tracks": 0, "check_s": 0.0, "checks": 0}
         return out
 
@@ -114,7 +115,8 @@ class LiveCameraPipeline:
         """Feed one frame (t on the session clock). Returns output messages."""
         if self.frame_clock is not None:
             t = self.frame_clock.fit(t)
-        if t <= self._last_t:  # out of order or duplicate: skip
+        if t <= self._last_t:  # out of order or duplicate: skip (counted)
+            self.diag["skipped_frames"] = self.diag.get("skipped_frames", 0) + 1
             return []
         out = self._size_check(image.shape[1], image.shape[0])
         return out + self._ingest(frame_index, t, self.detector.detect(image))
@@ -125,6 +127,7 @@ class LiveCameraPipeline:
         if self.frame_clock is not None:
             t = self.frame_clock.fit(t)
         if t <= self._last_t:
+            self.diag["skipped_frames"] = self.diag.get("skipped_frames", 0) + 1
             return []
         out = self._size_check(*size)
         roi = self.detector.cfg.roi_mask
@@ -238,7 +241,8 @@ class LiveCameraPipeline:
         if not sig or self.camera is None or ev.pixel is None:
             return ev
         J = ground_jacobian(self.camera, ev.pixel, self.court.ball_radius)
-        if J is None:
+        if J is None:  # the pixel's ray misses the ground: no floor added (counted, not silent)
+            self.diag["no_calib_floor"] = self.diag.get("no_calib_floor", 0) + 1
             return ev
         C = np.asarray(ev.cov_xy, float) + sig * sig * (J @ J.T)
         params = dict(ev.provenance.params or {})

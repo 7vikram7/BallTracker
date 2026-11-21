@@ -123,8 +123,12 @@ export function base64ToBytes(s) {
   const out = new Uint8Array(Math.floor((len * 3) / 4));
   let o = 0, acc = 0, bits = 0;
   for (let i = 0; i < len; i++) {
-    const v = B64_LOOKUP[s.charCodeAt(i)];
-    if (v < 0) continue; // skip whitespace
+    const c = s.charCodeAt(i);
+    const v = c < 256 ? B64_LOOKUP[c] : -1;
+    if (v < 0) {
+      if (c === 32 || c === 10 || c === 13 || c === 9) continue; // whitespace (line-wrapped base64)
+      throw new Error(`invalid base64 character code ${c} at ${i}`);
+    }
     acc = (acc << 6) | v;
     bits += 6;
     if (bits >= 8) {
