@@ -183,13 +183,16 @@ class LiveJudge:
                  play: PlayConfig | None = None, max_single_camera_std_m: float = 0.15,
                  view: Callable[[str, float, float], tuple[float, np.ndarray] | None] | None = None,
                  single_view_max_m: float = 8.0, far_out_m: float = 1.0, weak_rate: float = 0.4,
-                 lean_in_p: float = 1 / 3):
+                 lean_in_p: float = 1 / 3, processed: Callable[[str, float], bool] | None = None):
         self.court = court
         scale = float(getattr(court, "scale", 1.0) or 1.0)
         # a silent camera that rarely catches bounces at that distance doesn't veto (module docstring)
         self.recall = CameraRecall(scale)
         self.weak_rate = weak_rate
         self.lean_in_p = lean_in_p  # a camera whose own p(out) is below this blocks a fused OUT
+        # processed(camera, t): did that camera's worker process the frames around t? If not, its
+        # silence means nothing (it neither vetoes nor counts as a miss in its hit rate).
+        self.processed = processed
         # is the ball in play? serve? (see playstate.py; thresholds follow the court's scale)
         self.play = PlayState(play or PlayConfig.for_scale(scale), court)
         # view(camera, x, y) -> (distance m, horizontal unit vector camera -> point), or None
@@ -286,6 +289,11 @@ class LiveJudge:
             if not all(c.announce and c.result == call.result for c in own):
                 call = call.model_copy(update={"result": CallResult.UNCERTAIN, "announce": False, "call_text": None})
                 diag = {**diag, "cameras_disagree": True}
+        if call.announce and all((e.provenance.params or {}).get("unsettled") for e in g.events):
+            # Every report is a bounce whose track was cut by a flush (a stall, the stream stopping)
+            # less than settle_s after it: too few points after the bounce to trust an OUT.
+            call = call.model_copy(update={"result": CallResult.UNCERTAIN, "announce": False, "call_text": None})
+            diag = {**diag, "unsettled": True}
         if call.announce and len(g.events) > 1 and diag.get("inflation", 1.0) <= 1.0:
             # The cameras agree within their uncertainties, but one of them may still, on its own,
             # favour the other side of the line: a precise camera saying OUT and a vague one saying
@@ -306,6 +314,11 @@ class LiveJudge:
                 diag = {**diag, "single_camera_std_cm": round(100 * std_n, 1)}
         seeing = ({c for c in self._expected if self.can_see(c, b.position.x, b.position.y)}
                   if self.can_see is not None else set())
+        if self.processed is not None:
+            unknown = {c for c in seeing if c not in b.camera_ids and not self.processed(c, b.t)}
+            if unknown:
+                seeing -= unknown
+                diag = {**diag, "not_processed": sorted(unknown)}
         seeing |= set(b.camera_ids) & self._expected  # a camera that reported it saw it (edge of view)
         if call.announce and self.corroborate and seeing:
             confirmed = seeing & set(b.camera_ids)

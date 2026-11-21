@@ -69,7 +69,10 @@ final class CaptureEngine: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
   private var frameH = 0
   private var cands = [Float](repeating: 0, count: 64 * 4)
   private var running = false
-  private var battery = -1.0  // read on the main thread (UIKit), used on videoQueue
+  private var battery = -1.0  // read from UIKit on the main thread, then stored on videoQueue
+  // "host": frame times converted to the host clock through the session's clock; "pts": no session
+  // clock was available, so presentation timestamps went out unconverted (flagged to the server)
+  private var tsSource = "host"
 
   /// Host clock in seconds: the clock frame timestamps are converted to.
   static func hostNow() -> Double {
@@ -196,7 +199,7 @@ final class CaptureEngine: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     }
     device = dev
     let d = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
-    return ["width": Int(d.width), "height": Int(d.height), "fps": c.fps,
+    return ["width": Int(d.width), "height": Int(d.height), "fps": c.fps, "timestampSource": "host",
             "format": "\(d.width)x\(d.height) max \(Int(format.videoSupportedFrameRateRanges.map { $0.maxFrameRate }.max() ?? 0)) fps\(format.isVideoBinned ? " binned" : "")",
             "minShutterS": format.minExposureDuration.seconds, "maxIso": format.maxISO, "minIso": format.minISO]
   }
@@ -257,13 +260,20 @@ final class CaptureEngine: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     nProcessed = 0
     nDropped = 0
     detectUs = 0
+    tsSource = "host"
   }
 
   private func hostTime(_ sb: CMSampleBuffer) -> Double {
     let pts = CMSampleBufferGetPresentationTimeStamp(sb)
     let clock: CMClock?
     if #available(iOS 15.4, *) { clock = session.synchronizationClock } else { clock = session.masterClock }
-    guard let c = clock else { return pts.seconds }
+    guard let c = clock else {
+      if tsSource != "pts" {
+        tsSource = "pts"
+        emit?("onError", ["message": "capture session has no clock: frame times are unconverted"])
+      }
+      return pts.seconds
+    }
     return CMSyncConvertTime(pts, from: c, to: CMClockGetHostTimeClock()).seconds
   }
 
@@ -296,10 +306,12 @@ final class CaptureEngine: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     seq &+= 1
     if (t - batchStart) * 1000 >= cfg.batchMs { flushBatch(); batchStart = t }
 
-    if t - lastPreview >= cfg.previewEverySec && !previewBusy {
+    if t - lastPreview >= cfg.previewEverySec && !previewBusy, let copy = copyPixelBuffer(pb) {
       lastPreview = t
       previewBusy = true
-      let image = CIImage(cvPixelBuffer: pb)
+      // Encode from a copy: a CIImage on the camera's own buffer kept it out of the capture pool
+      // until the JPEG was done, which can make the camera drop frames (review of defed68).
+      let image = CIImage(cvPixelBuffer: copy)
       let s = Int(seq &- 1), q = cfg.previewQuality
       jpegQueue.async {
         let opts = [CIImageRepresentationOption(rawValue: kCGImageDestinationLossyCompressionQuality as String): q]
@@ -319,6 +331,25 @@ final class CaptureEngine: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     nDropped += 1
   }
 
+  /// A copy of the camera's pixel buffer (same size and format), or nil if it can't be made.
+  private func copyPixelBuffer(_ src: CVPixelBuffer) -> CVPixelBuffer? {
+    var dst: CVPixelBuffer?
+    let w = CVPixelBufferGetWidth(src), h = CVPixelBufferGetHeight(src)
+    let attrs = [kCVPixelBufferIOSurfacePropertiesKey as String: [:]] as CFDictionary
+    guard CVPixelBufferCreate(nil, w, h, CVPixelBufferGetPixelFormatType(src), attrs, &dst) == kCVReturnSuccess,
+          let out = dst else { return nil }
+    CVPixelBufferLockBaseAddress(src, .readOnly)
+    CVPixelBufferLockBaseAddress(out, [])
+    defer {
+      CVPixelBufferUnlockBaseAddress(out, [])
+      CVPixelBufferUnlockBaseAddress(src, .readOnly)
+    }
+    guard let s = CVPixelBufferGetBaseAddress(src), let d = CVPixelBufferGetBaseAddress(out) else { return nil }
+    let sb = CVPixelBufferGetBytesPerRow(src), db = CVPixelBufferGetBytesPerRow(out)
+    for y in 0..<h { memcpy(d + y * db, s + y * sb, min(sb, db)) }
+    return out
+  }
+
   private func flushBatch() {
     guard !batch.isEmpty else { return }
     emit?("onDetections", ["width": frameW, "height": frameH, "frames": batch])
@@ -335,10 +366,13 @@ final class CaptureEngine: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     case .critical: thermal = "critical"
     @unknown default: thermal = "unknown"
     }
-    DispatchQueue.main.async { self.battery = Double(UIDevice.current.batteryLevel) }  // -1 if unknown
+    DispatchQueue.main.async {  // UIKit on main; the value is stored on videoQueue, where it is read
+      let level = Double(UIDevice.current.batteryLevel)  // -1 if unknown
+      self.videoQueue.async { self.battery = level }
+    }
     emit?("onStats", ["fpsCapture": Double(nCaptured + nDropped) / dt, "fpsProcessed": Double(nProcessed) / dt,
                       "detectMs": nProcessed > 0 ? detectUs / Double(nProcessed) / 1000 : 0,
-                      "dropped": nDropped, "thermal": thermal, "battery": battery])
+                      "dropped": nDropped, "thermal": thermal, "battery": battery, "tsSource": tsSource])
     statsStart = t
     nCaptured = 0
     nProcessed = 0

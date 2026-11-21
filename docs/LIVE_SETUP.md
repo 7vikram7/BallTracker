@@ -212,6 +212,16 @@ bt report data/live/sessions/<id> --marks docs/field_test_marks.csv   # writes <
 bt replay data/live/sessions/<id>              # re-run with today's code; shows calls that changed
 ```
 
+**Per-camera bias around target spots** (for the far half especially): mark a few spots with
+chalk or tape, measure their court positions (x across, y along, metres, court centre 0,0, side
+A negative y), land balls on them during the session, then:
+
+```bash
+.venv/bin/python scripts/score_marks.py data/live/sessions/<id> marks.json   # [{"name": ..., "x": ..., "y": ...}]
+```
+
+It prints each camera's mean error (cm, and pixels at that camera) near every spot.
+
 Each session folder keeps `session.json` (when, which code commit and algorithm versions,
 settings, and a closing summary per camera), `events.jsonl` (connections with device/app
 details, every calibration with its clicked points and per-point errors, camera health every

@@ -91,6 +91,10 @@ class TrackerConfig:
     max_radius_ratio: float = 2.5
     radius_cost: float = 0.5  # weight of |ln(r_cand / r_track)| in the match cost
     max_misses: int = 4
+    # If set, a track ends when it has had no point for longer than this (seconds) instead of
+    # after max_misses frames: the same tolerance at 30, 60 and 120 fps and with the phone's
+    # reduced frame stream (review of defed68, TODO-16; entry 28).
+    max_miss_s: float | None = None
     min_track_len: int = 6
     min_path_px: float = 30.0
 
@@ -152,7 +156,11 @@ class BallTracker:
                 tr.misses += 1
         still: list[Track] = []
         for tr in tracks:
-            (self._finished if tr.misses > cfg.max_misses else still).append(tr)
+            if cfg.max_miss_s is not None:
+                ended = tr.misses > 0 and t - tr.points[-1].t > cfg.max_miss_s
+            else:
+                ended = tr.misses > cfg.max_misses
+            (self._finished if ended else still).append(tr)
         self._active = still
         for j, cd in enumerate(cands):
             if j in assigned_c:

@@ -7,8 +7,10 @@ previews; the server tracks, fuses and calls. Skipped if Chrome isn't installed.
 
 import asyncio
 import json
+import os
 import shutil
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -16,7 +18,9 @@ import cv2
 import numpy as np
 import pytest
 
-CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+CHROME = os.environ.get("BT_CHROME") or next(
+    (c for c in ("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", shutil.which("google-chrome") or "",
+                 shutil.which("chromium") or "") if c and Path(c).exists()), "/nonexistent/chrome")
 pytestmark = [pytest.mark.slow, pytest.mark.skipif(not Path(CHROME).exists(), reason="Google Chrome not installed")]
 
 
@@ -32,7 +36,8 @@ def _write_y4m(path: Path, frames, fps: int) -> None:
 async def _cdp_run_phone_page(url: str, name: str, user_dir: Path, y4m: Path, seconds: float, port: int) -> dict:
     import aiohttp
 
-    proc = subprocess.Popen([CHROME, "--headless=new", f"--remote-debugging-port={port}",
+    linux = [] if sys.platform == "darwin" else ["--no-sandbox"]  # CI containers have no user namespaces
+    proc = subprocess.Popen([CHROME, "--headless=new", *linux, f"--remote-debugging-port={port}",
                              f"--user-data-dir={user_dir}", "--use-fake-ui-for-media-stream",
                              "--use-fake-device-for-media-stream", f"--use-file-for-fake-video-capture={y4m}",
                              "--autoplay-policy=no-user-gesture-required", "--disable-background-timer-throttling",

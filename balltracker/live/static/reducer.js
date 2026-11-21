@@ -185,10 +185,36 @@ export class Reducer {
       } else if (this.tracks.length < cfg.maxTracks) {
         used.add(this.tracks.length);
         this.tracks.push({ pts: [{ t: f.t, u, v }], miss: 0 });
+      } else {
+        // All slots taken (a busy scene: players, shirts). A track slower than minSpeedPxS is
+        // ignored by the change detector anyway: give its slot to the new candidate, which may
+        // be the ball (review of defed68: the ball got no track and its bounce went out at base rate).
+        const k = this._slowestTrack();
+        if (k >= 0) {
+          used.add(k);
+          this.tracks[k] = { pts: [{ t: f.t, u, v }], miss: 0 };
+        }
       }
     }
     this.tracks.forEach((tr, k) => { if (!used.has(k)) tr.miss += 1; });
     this.tracks = this.tracks.filter((tr) => tr.miss <= 6);
+  }
+
+  /**
+   * Index of the slowest track, if it is too slow for the change detector (speed over its stored
+   * points below minSpeedPxS); else -1. It may have been matched in this frame already (higher-
+   * scoring clutter is matched first); dropping a slow track's point costs nothing. Fresh tracks
+   * (one point) are kept: they have no speed yet.
+   */
+  _slowestTrack() {
+    let best = -1, bestS = this.cfg.minSpeedPxS;
+    this.tracks.forEach((tr, k) => {
+      if (tr.pts.length < 2) return;
+      const a = tr.pts[0], b = tr.pts[tr.pts.length - 1];
+      const s = Math.hypot(b.u - a.u, b.v - a.v) / Math.max(b.t - a.t, 1e-4);
+      if (s < bestS) { best = k; bestS = s; }
+    });
+    return best;
   }
 
   /** @param {{pts: {t: number, u: number, v: number}[]}} tr */

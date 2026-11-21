@@ -197,3 +197,47 @@ test('base64 decoding rejects characters outside the alphabet', () => {
   assert.throws(() => base64ToBytes('QUJD!REVG'), /base64/);
   assert.deepEqual(base64ToBytes('QUJD\r\n REVG\t'), new Uint8Array([65, 66, 67, 68, 69, 70]));  // whitespace is fine
 });
+
+test('session: hello and stats carry the clock the native side measured, and native errors', async () => {
+  // Review of defed68 (TODO-23): ts_source was hard-coded 'app:sensor'.
+  FakeWebSocket.reset();
+  const native = new MockNative({ startResult: { width: 1920, height: 1080, fps: 120, format: 'mock', timestampSource: 'uptime' } });
+  let wall = 0;
+  const s = new CameraSession({
+    native, WebSocketImpl: FakeWebSocket, wallNow: () => wall,
+    settings: { url: 'ws://x/ws/edge', name: 'cam-c', width: 1920, height: 1080, fps: 120, reduce: { enabled: false } },
+  });
+  await s.start();
+  const ws = FakeWebSocket.last();
+  ws.open();
+  assert.equal(ws.json()[0].ts_source, 'app:uptime');
+  wall = 1500;
+  native.emit('onStats', { fpsCapture: 58, fpsProcessed: 58, detectMs: 9, dropped: 0, thermal: 'fair',
+    tsSource: 'converted:uptime', detectErrors: 3 });
+  const stats = ws.json().find((m) => m.type === 'stats');
+  assert.equal(stats.fps_capture, 58);  // the delivered rate, not the requested 120
+  assert.equal(stats.ts_source, 'app:converted:uptime');
+  assert.equal(stats.detect_errors, 3);
+  await s.stop();
+});
+
+test('session: a camera delivering fewer frames than asked gets its detector tuned to the real rate', async () => {
+  FakeWebSocket.reset();
+  const native = new MockNative({ startResult: { width: 1920, height: 1080, fps: 120, format: 'mock' } });
+  let wall = 0;
+  const s = new CameraSession({
+    native, WebSocketImpl: FakeWebSocket, wallNow: () => wall,
+    settings: { url: 'ws://x/ws/edge', name: 'cam-d', width: 1920, height: 1080, fps: 120, reduce: { enabled: false } },
+  });
+  await s.start();
+  const ws = FakeWebSocket.last();
+  ws.open();
+  ws.receive({ type: 'config', detector: { bin: 2, fps: 60 } });
+  assert.equal(native.detectorConfigs.at(-1).fps, 120);
+  for (const f of [58, 57, 59]) { wall += 1000; native.emit('onStats', { fpsCapture: f, fpsProcessed: f }); }
+  assert.equal(native.detectorConfigs.at(-1).fps, 58);
+  ws.receive({ type: 'config', detector: { bin: 2, fps: 60 } });  // a later server config keeps the real rate
+  assert.equal(native.detectorConfigs.at(-1).fps, 58);
+  assert.equal(ws.json().filter((m) => m.type === 'stats').at(-1).fps_detector, 58);
+  await s.stop();
+});

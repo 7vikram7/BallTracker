@@ -77,8 +77,13 @@ def load_session(session: Path | str) -> dict:
         timeline = [(float(e["t"]), Camera.from_dict(e["camera_model"])) for e in events
                     if e.get("camera") == d.name and e.get("camera_model")
                     and e.get("type") in ("camera_connected", "calibrated")]
+        ctl = [e for e in events if e.get("type") == "worker_ctl" and e.get("camera") == d.name]
+        # sessions before 2026-11-21 ran MOG2 on JPEG cameras; later ones log the detector
+        mac_detector = (con[-1].get("mac_detector") if con else None) or "mog2"
+        fps = float(con[-1].get("fps") or 0) if con else 0.0
         cams[d.name] = {"kind": kind, "dir": d, "camera": cam, "regularize_time": regularize,
-                        "timeline": sorted(timeline, key=lambda a: a[0])}
+                        "timeline": sorted(timeline, key=lambda a: a[0]), "ctl": ctl,
+                        "mac_detector": mac_detector, "fps": fps}
     contexts = [(e["t"], e["context"]) for e in events if e.get("type") == "context"]
     # match (serves recognised) or drill: the mode at the start, then every change
     start_mode = ((manifest or {}).get("settings") or {}).get("play_mode", "match")
@@ -121,6 +126,9 @@ def camera_reports(name: str, info: dict, court: CourtSpec, detector_overrides: 
                    max_rms_px: float | None = None) -> list[BounceEvent]:
     """Run one camera's recording through the streaming pipeline; return its bounce reports."""
     cfg = LiveConfig()
+    cfg.mac_detector = info.get("mac_detector") or "mog2"
+    if info.get("fps"):
+        cfg.fps_hint = float(info["fps"])
     for k, v in (detector_overrides or {}).items():
         if hasattr(cfg.detector, k):
             setattr(cfg.detector, k, tuple(v) if isinstance(v, list) else v)
@@ -134,9 +142,20 @@ def camera_reports(name: str, info: dict, court: CourtSpec, detector_overrides: 
     out: list[dict] = []
     nxt = 1 if timeline else 0
     ready = calibration_ready(first, lim)
+    # What the live worker did because of load (logged as worker_ctl), applied at the same frames:
+    # dropped batches are skipped, bounce checks deferred, tracks flushed after silences.
+    ctl = info.get("ctl") or []
+    drops = [(int(e["seq0"]), int(e["seq1"])) for e in ctl if e.get("op") == "drop"]
+    defers = sorted((int(e["seq"]), bool(e["on"])) for e in ctl if e.get("op") == "defer")
+    flushes = {int(e["seq"]) for e in ctl if e.get("op") == "flush"}
+    di = 0
+    gaps: list[tuple[float, float]] = []
+    span = [float("inf"), float("-inf")]
 
     def take(msgs: list[dict]) -> None:
         for o in msgs:
+            if o.get("kind") == "gap":
+                gaps.append((float(o["t0"]), float(o["t1"])))
             if o.get("kind") != "bounce":
                 continue
             if ready:
@@ -154,16 +173,28 @@ def camera_reports(name: str, info: dict, court: CourtSpec, detector_overrides: 
     if info["kind"] == "edge":
         for seq, ts, cl, size in _iter_edge(info["dir"]):
             follow(ts)
+            while di < len(defers) and defers[di][0] <= seq:
+                pipe.defer_checks = defers[di][1]
+                di += 1
+            if any(a <= seq <= b for a, b in drops):
+                continue
             cands = [Candidate(u=u, v=v, radius_px=r, score=sc, area_px=float(np.pi * r * r), elongation=1.0)
                      for u, v, r, sc in cl]
             if size == (0, 0) and pipe.camera is not None:
                 size = tuple(pipe.camera.image_size)
             take(pipe.process_candidates(seq, ts, cands, size))
+            span[0], span[1] = min(span[0], ts), max(span[1], ts)
+            if seq in flushes:
+                take(pipe.flush())
     else:
         for seq, ts, img in _iter_browser(info["dir"]):
             follow(ts)
             take(pipe.process(seq, ts, img))
+            span[0], span[1] = min(span[0], ts), max(span[1], ts)
+            if seq in flushes:
+                take(pipe.flush())
     take(pipe.flush())
+    info["gaps"], info["span"] = gaps, tuple(span)
     return [BounceEvent.model_validate(o["event"]) for o in out]
 
 
@@ -177,16 +208,22 @@ def _parse_context(ctx: str) -> ServeContext | None:
 def judge_reports(court: CourtSpec, cameras: dict, reports: dict[str, list[BounceEvent]], contexts=(),
                   hold_s: float = 0.6, modes=(), max_rms_px: float | None = None) -> list[dict]:
     """Feed all cameras' reports to a LiveJudge in (estimated) arrival order."""
-    from .server import camera_can_see, camera_view, decision_dict
+    from .server import camera_can_see, camera_view, covered, decision_dict
 
     from .upkeep import MAX_RMS_PX, calibration_ready
 
     lim = MAX_RMS_PX if max_rms_px is None else max_rms_px
     # can_see / view / expected cameras: the last calibration of each camera
     models = {n: (c["timeline"][-1][1] if c.get("timeline") else c["camera"]) for n, c in cameras.items()}
+    def processed(n: str, t: float) -> bool:
+        # Replay has every frame up front: covered if inside the recording and outside its gaps.
+        c = cameras.get(n) or {}
+        lo, hi = c.get("span", (float("-inf"), float("inf")))
+        return lo <= t and covered(hi, c.get("gaps", ()), t)
+
     judge = LiveJudge(court, PickleballLineCaller(court, LineCallConfig()), hold_s=hold_s,
                       can_see=lambda n, x, y: camera_can_see(models.get(n), court, x, y),
-                      view=lambda n, x, y: camera_view(models.get(n), x, y))
+                      view=lambda n, x, y: camera_view(models.get(n), x, y), processed=processed)
     expected = {n for n, m in models.items() if calibration_ready(m, lim)}
     queue = sorted(((ev.t + ARRIVAL_DELAY_S, ev) for evs in reports.values() for ev in evs), key=lambda a: a[0])
     ctx = sorted(contexts)

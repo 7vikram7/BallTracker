@@ -128,6 +128,9 @@ class CamState:
     mode: str = "browser"  # "browser" (JPEG frames) or "edge" (native app sends detections)
     app: dict = field(default_factory=dict)
     reduced: bool = False  # the phone sends a reduced frame stream (seq jumps are intended)
+    # what the camera's worker has processed (session time): up to here, minus these gaps
+    processed_until: float = float("-inf")
+    gaps: deque = field(default_factory=lambda: deque(maxlen=200))
     skipped_by_phone: int = 0  # frames the phone chose not to send
     cal_jpeg: bytes | None = None  # the frame the calibration dialog shows (snap works on the same image)
     cal_points: dict = field(default_factory=dict)  # the points of the last saved calibration
@@ -171,7 +174,7 @@ class LiveServer:
         self.cams: dict[str, CamState] = {}
         self.dashboards: set[web.WebSocketResponse] = set()
         self.judge = LiveJudge(court, PickleballLineCaller(court, LineCallConfig()), hold_s=hold_s, can_see=self.can_see,
-                               view=self.view)
+                               view=self.view, processed=self.processed)
         self.play_mode = "match"
         self.set_play_mode(play_mode, log_it=False)
         self.recent: deque = deque(maxlen=300)
@@ -348,6 +351,13 @@ class LiveServer:
             self._broadcast_soon({"type": "ball", **msg})
         elif kind == "stats" and cam is not None:
             cam.stats = msg
+        elif kind == "progress" and cam is not None:
+            cam.processed_until = max(cam.processed_until, float(msg["t"]))
+        elif kind == "gap" and cam is not None:
+            cam.gaps.append((float(msg["t0"]), float(msg["t1"])))
+            self._log_event({"type": "camera_gap", "camera": cam.name, "t0": msg["t0"], "t1": msg["t1"]})
+        elif kind == "ctl" and cam is not None:  # load-dependent worker actions, applied again by replay
+            self._log_event({"type": "worker_ctl", **{k: v for k, v in msg.items() if k != "kind"}})
         elif kind == "camera_set" and cam is not None:
             log.info("worker %s calibrated=%s", cam.name, msg.get("calibrated"))
         elif kind == "warning":
@@ -369,6 +379,12 @@ class LiveServer:
         """Does calibrated camera ``name`` see the court point (x, y)?"""
         cam = self.cams.get(name)
         return cam is not None and camera_can_see(cam.camera, self.court, x, y)
+
+    def processed(self, name: str, t: float) -> bool:
+        """Has camera ``name``'s worker processed the frames around session time ``t``? A camera
+        that hasn't (behind, stalled, dropped frames) is "unknown" there, not "saw nothing"."""
+        cam = self.cams.get(name)
+        return cam is not None and covered(cam.processed_until, cam.gaps, t)
 
     def view(self, name: str, x: float, y: float):
         cam = self.cams.get(name)
@@ -474,6 +490,7 @@ class LiveServer:
                 out.append({"level": "warn", "camera": c.name,
                             "text": f"{c.name}: the Mac is {lat / 1000:.1f} s behind on this camera"})
             ph = c.phone_stats or {}
+            out += phone_warnings(c.name, c.fps_req, ph, c.ts_source)
             if ph.get("thermal") in ("serious", "critical"):
                 out.append({"level": "warn", "camera": c.name, "text": f"{c.name}: phone is hot ({ph['thermal']})"})
             b = ph.get("battery")
@@ -488,7 +505,7 @@ class LiveServer:
         for c in sorted(self.cams.values(), key=lambda c: c.name):
             cams.append({
                 "name": c.name, "connected": c.connected, "device": c.device, "width": c.width, "height": c.height,
-                "fps_req": c.fps_req, "fps_in": c.fps_in(), "frames_in": c.frames_in, "drops": c.drops,
+                "fps_req": c.fps_req, "fps_in": c.fps_in(), "fps_delivered": (c.phone_stats or {}).get("fps_capture"), "frames_in": c.frames_in, "drops": c.drops,
                 "unsynced": c.unsynced, "seq_gaps": c.seq_gaps, "ts_source": c.ts_source,
                 "clock": c.clock.summary(), "calibrated": c.camera is not None,
                 "proposal": None if c.proposal is None else {k: v for k, v in c.proposal.items() if k != "camera"},
@@ -591,6 +608,8 @@ class LiveServer:
         regularize = cam.mode == "browser" or cam.app.get("platform") == "browser"
         try:
             cam.in_q.put(("timing", regularize), timeout=1.0)
+            if cam.fps_req:
+                cam.in_q.put(("fps", cam.fps_req), timeout=1.0)
         except queue_mod.Full:
             log.warning("worker queue full; timing mode for %s not set", name)
         # Detections from on-phone cameras are always recorded (tiny; makes every session replayable).
@@ -607,6 +626,8 @@ class LiveServer:
                          "fps": cam.fps_req, "ts_source": cam.ts_source,
                          "calibrated": cam.camera is not None, "regularize_time": regularize,
                          "reduced": cam.reduced,
+                         # JPEG cameras: which detector the Mac ran on them (replay uses the same)
+                         "mac_detector": "phone" if cam.mode == "browser" else None,
                          # the calibration in use from the start (replay follows calibrations over time)
                          "camera_model": cam.camera.to_dict() if cam.camera else None,
                          "detector_config": self.edge_detector_config(cam.fps_req) if cam.mode == "edge" else None})
@@ -1093,6 +1114,31 @@ class LiveServer:
         self.events_f.close()
 
 
+def phone_warnings(name: str, fps_req: float, ph: dict, ts_source: str) -> list[dict]:
+    """What the app reports about itself that the operator should know (review of defed68, TODO-23/24)."""
+    out = []
+    fps = ph.get("fps_capture")
+    if fps_req and isinstance(fps, (int, float)) and 0 < fps < 0.85 * fps_req:
+        out.append({"level": "warn", "camera": name,
+                    "text": f"{name}: asked for {fps_req:.0f} fps, the camera delivers {fps:.0f}"})
+    if ph.get("detect_errors"):
+        out.append({"level": "bad", "camera": name,
+                    "text": f"{name}: the phone's detector failed on {ph['detect_errors']} frames (restart the app)"})
+    src = ts_source or ""
+    if src.startswith("app:converted") or src == "app:pts":
+        out.append({"level": "warn", "camera": name,
+                    "text": f"{name}: frame times were not on the expected clock ({src[4:]}); timing may be off"})
+    return out
+
+
+def covered(processed_until: float, gaps, t: float, before_s: float = 0.1, after_s: float = 0.15) -> bool:
+    """Frames around ``t`` (``before_s`` before to ``after_s`` after) were processed: the worker
+    got past ``t + after_s`` and no gap overlaps that stretch."""
+    if processed_until < t + after_s:
+        return False
+    return not any(g0 < t + after_s and g1 > t - before_s for g0, g1 in gaps)
+
+
 def camera_can_see(camera: Camera | None, court: CourtSpec, x: float, y: float) -> bool:
     """Is the court point (x, y) inside this camera's image (with a 3 % margin)?"""
     if camera is None:
@@ -1125,7 +1171,8 @@ def decision_dict(d: Decision, latency_s: float | None) -> dict:
         "n_reports": d.diagnostics.get("n"), "chi2": d.diagnostics.get("chi2"),
         "inflation": d.diagnostics.get("inflation"), "suppressed": d.suppressed,
         "unconfirmed_by": d.diagnostics.get("unconfirmed_by"),
-        "silent_weak": d.diagnostics.get("silent_weak"),
+        "silent_weak": d.diagnostics.get("silent_weak"), "not_processed": d.diagnostics.get("not_processed"),
+        "unsettled": d.diagnostics.get("unsettled"),
         "cameras_disagree": d.diagnostics.get("cameras_disagree"),
         "play": d.diagnostics.get("play"), "h_in_mps": d.diagnostics.get("h_in_mps"),
         "vz_in_mps": d.diagnostics.get("vz_in_mps"), "h_in_lo_mps": d.diagnostics.get("h_in_lo_mps"),

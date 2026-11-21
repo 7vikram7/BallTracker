@@ -126,7 +126,8 @@ export class CameraSession {
       now: () => this.native.now(),
       hello: () => ({
         name: s.name, device: s.device || 'unknown', platform: s.platform || 'unknown',
-        width: cam.width, height: cam.height, fps: cam.fps, ts_source: 'app:sensor',
+        // ts_source: the clock the native side says its frame times are on (Android checks it)
+        width: cam.width, height: cam.height, fps: cam.fps, ts_source: `app:${cam.timestampSource || 'sensor'}`,
         algo: ALGO, algo_version: ALGO_VERSION, app_version: s.appVersion || 'dev',
         reduce: this.reducer.cfg.enabled,
       }),
@@ -176,7 +177,7 @@ export class CameraSession {
         if (m.detector) {
           // The server owns the detector settings (ball colour etc.); the frame
           // rate is what the camera actually runs at.
-          const fps = this.state.camera ? this.state.camera.fps : m.detector.fps;
+          const fps = this._fpsActual || (this.state.camera ? this.state.camera.fps : m.detector.fps);
           this.detectorConfig = { ...m.detector, fps };
           this.native.setDetectorConfig(this.detectorConfig);
         }
@@ -215,7 +216,29 @@ export class CameraSession {
   }
 
   /** @param {{fpsCapture: number, fpsProcessed: number, detectMs: number, dropped: number, thermal: string, battery?: number}} st */
+  /**
+   * The camera may deliver fewer frames than asked (field test 3: a Samsung asked for 120 gave 58).
+   * The detector's background model is tuned by frame rate, so after 3 s below 85% of the asked
+   * rate it is re-tuned to the measured one (review of defed68, TODO-23).
+   * @param {number | undefined} fps
+   */
+  _noteFps(fps) {
+    const asked = this.state.camera ? this.state.camera.fps : 0;
+    if (!asked || !(fps > 0)) return;
+    this._fpsSeen = [...(this._fpsSeen || []), fps].slice(-3);
+    const low = this._fpsSeen.length === 3 && this._fpsSeen.every((f) => f < 0.85 * asked);
+    if (!low) return;
+    const med = [...this._fpsSeen].sort((a, b) => a - b)[1];
+    if (this._fpsActual && Math.abs(med - this._fpsActual) <= 0.15 * this._fpsActual) return;
+    this._fpsActual = Math.round(med);
+    if (this.detectorConfig) {
+      this.detectorConfig = { ...this.detectorConfig, fps: this._fpsActual };
+      this.native.setDetectorConfig(this.detectorConfig);
+    }
+  }
+
   _onNativeStats(st) {
+    this._noteFps(st.fpsCapture);
     const now = this.wallNow();
     const dt = Math.max(1e-3, (now - this._rate.t) / 1000);
     const cs = this.client ? this.client.stats : { sentFrames: 0, droppedFrames: 0, bytes: 0 };
@@ -231,7 +254,10 @@ export class CameraSession {
       this._lastStatsSent = now;
       this.client.sendStats({
         fps_capture: st.fpsCapture, fps_processed: st.fpsProcessed, detect_ms: st.detectMs,
+        ...(this._fpsActual ? { fps_detector: this._fpsActual } : {}),
         phone_drops: st.dropped, thermal: st.thermal, battery: st.battery,
+        ...(st.tsSource ? { ts_source: `app:${st.tsSource}` } : {}),
+        ...(st.detectErrors ? { detect_errors: st.detectErrors } : {}),
         link_dropped: cs.droppedFrames, kbps: Math.round(kbps),
         reduce: { ...this.reducer.stats },
       });

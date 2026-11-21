@@ -1,0 +1,90 @@
+# Continuous integration (review of defed68: TODO-21, TODO-22; decision log entry 28).
+# To switch it on: copy this file to .github/workflows/ci.yml (needs a GitHub token with the
+# `workflow` scope, or add it in the GitHub web UI).
+#
+# * tests: the whole suite on Linux with BT_REQUIRE_ALL=1, so a missing compiler, node, Chrome or
+#   data file fails the run instead of skipping silently.
+# * native-flags: the shared C++ detector (mobile/modules/ball-camera/cpp/ballcore.cpp) built with
+#   the exact flags of each real build (iOS podspec, Android CMake, WebAssembly script). The
+#   detector must give the same candidates as the Python reference, which needs -ffp-contract=off
+#   (no fused multiply-add). The job checks the arm64 objects contain no fused multiply-add
+#   instructions (and that the check would see them without the flag), then runs the parity
+#   tests on Apple silicon and the WebAssembly parity test on a fresh wasm build.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      BT_REQUIRE_ALL: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: System libraries (OpenCV needs libGL)
+        run: sudo apt-get update && sudo apt-get install -y libgl1 clang
+      - name: Install
+        run: pip install -e ".[live,dev]"
+      - name: Tests
+        run: python -m pytest -q
+      - name: App unit tests
+        run: node --test mobile/test/core.test.js mobile/test/reducer.test.js
+
+  native-flags:
+    runs-on: macos-14   # Apple silicon: arm64, like the phones
+    timeout-minutes: 30
+    env:
+      BT_REQUIRE_ALL: "1"
+      SRC: mobile/modules/ball-camera/cpp
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: No fused multiply-add with the iOS flags (podspec OTHER_CPLUSPLUSFLAGS)
+        run: |
+          FLAGS=$(grep -o "OTHER_CPLUSPLUSFLAGS' => '[^']*" mobile/modules/ball-camera/ios/BallCamera.podspec | sed "s/.*=> '\$(inherited) //")
+          echo "podspec flags: $FLAGS"
+          xcrun -sdk iphoneos clang++ -arch arm64 -std=c++17 $FLAGS -c $SRC/ballcore.cpp -o ios.o
+          xcrun -sdk iphoneos clang++ -arch arm64 -std=c++17 -O2 -ffp-contract=fast -c $SRC/ballcore.cpp -o ios_fast.o
+          n=$(objdump -d ios.o | grep -cE '\b(fmadd|fmsub|fnmadd|fnmsub|fmla|fmls)\b' || true)
+          c=$(objdump -d ios_fast.o | grep -cE '\b(fmadd|fmsub|fnmadd|fnmsub|fmla|fmls)\b' || true)
+          echo "fused multiply-add instructions: with flags $n, control without $c"
+          test "$c" -gt 0   # the check can see them
+          test "$n" -eq 0
+      - name: No fused multiply-add with the Android flags (CMakeLists target_compile_options)
+        run: |
+          FLAGS=$(grep -o 'target_compile_options(ballcore_jni PRIVATE [^)]*' mobile/modules/ball-camera/android/src/main/cpp/CMakeLists.txt | sed 's/.*PRIVATE //')
+          echo "CMake flags: $FLAGS"
+          NDK="${ANDROID_NDK_LATEST_HOME:-$ANDROID_NDK_HOME}"
+          CXX="$NDK/toolchains/llvm/prebuilt/darwin-x86_64/bin/clang++"
+          "$CXX" --target=aarch64-linux-android24 -std=c++17 $FLAGS -c $SRC/ballcore.cpp -o android.o
+          "$CXX" --target=aarch64-linux-android24 -std=c++17 -O2 -c $SRC/ballcore.cpp -o android_default.o
+          n=$(objdump -d android.o | grep -cE '\b(fmadd|fmsub|fnmadd|fnmsub|fmla|fmls)\b' || true)
+          c=$(objdump -d android_default.o | grep -cE '\b(fmadd|fmsub|fnmadd|fnmsub|fmla|fmls)\b' || true)
+          echo "fused multiply-add instructions: with flags $n, NDK defaults $c"
+          test "$c" -gt 0   # the NDK contracts by default: the flag matters
+          test "$n" -eq 0
+      - name: Install
+        run: pip install -e ".[live,dev]"
+      - name: Detector parity on arm64 (C++ vs Python reference, golden detector output)
+        run: python -m pytest -q tests/test_edge.py tests/test_golden.py -k "cpp or detector or golden"
+      - name: WebAssembly build from source, then its parity test
+        run: |
+          curl -sSL -o wasi.tgz https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-24/wasi-sdk-24.0-arm64-macos.tar.gz
+          mkdir -p "$HOME/.local/toolchains" && tar xzf wasi.tgz -C "$HOME/.local/toolchains"
+          WASI_SDK=$(ls -d "$HOME"/.local/toolchains/wasi-sdk-* | tail -1) scripts/build_wasm.sh
+          python -m pytest -q tests/test_edge.py -k wasm

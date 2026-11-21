@@ -19,6 +19,7 @@ several CPU cores.
 from __future__ import annotations
 
 import queue as queue_mod
+import subprocess
 import time
 from dataclasses import dataclass, field
 
@@ -57,6 +58,28 @@ class LiveConfig:
     # consistent) and the judge declared them in disagreement; 2 px made them consistent
     # (median chi2 0.7-2.8, 5-7% of pairs beyond the 99.9% limit).
     calib_sigma_px: float = 2.0
+    # No frames for this long: end the open tracks and give them their final bounce check. It
+    # was 0.4 s; a Wi-Fi stall that long cut tracks short, and a bounce just before it could be
+    # finalised with too few points after it (review of defed68). Now one lookback.
+    flush_after_s: float = 1.0
+    # Frames further apart than this are a gap in what this camera processed (stall, dropped
+    # batch): the judge treats the camera as "unknown" there, not as having seen nothing.
+    gap_s: float = 0.25
+    # Ball-likeness at the bounce (review of defed68, TODO-17: a shirt swaying and bobbing made
+    # bounces in 4 of 40 synthetic trials). The blob's median radius around the bounce, divided
+    # by the radius a ball would have at that spot of the court (from the calibration). Field
+    # test 3 (1 746 bounces, 3 phones): median 0.9-1.0, 99.5% below 1.84-2.18, largest 2.81 (the
+    # detector overestimates small radii by 1-2 px). Above max the track is not a ball: that
+    # removed the shirt bounces at 5.4-6x, not those at 2.3x (size alone can't tell those).
+    # No lower bound by default (min_ball_radius_ratio): 0.5% of real bounces were below 0.26.
+    max_ball_radius_ratio: float | None = 3.0
+    # Detector for cameras that send JPEGs (browser page): "phone" runs the phone's own detector
+    # (the C++ core, same as the app) so a browser camera and the app see the same candidates;
+    # "mog2" is the Mac's older model, kept to replay sessions recorded with it. MOG2 lost a ball
+    # that stopped after 0.2 s, the phone's model keeps it ~2 s (review of defed68, TODO-16).
+    mac_detector: str = "phone"
+    fps_hint: float = 60.0  # the phone detector's background rate follows the frame rate
+    min_ball_radius_ratio: float | None = None
 
 
 def _slice_track(tr: Track, t_from: float) -> Track:
@@ -69,7 +92,9 @@ class LiveCameraPipeline:
         self.camera_id = camera_id
         self.court = court
         self.cfg = cfg or LiveConfig()
-        self.detector = MotionColorBallDetector(self.cfg.detector)
+        self.roi: np.ndarray | None = None
+        self.warnings: list[str] = []
+        self._detector = None  # made on the first JPEG frame (app cameras send candidates instead)
         self.tracker = BallTracker(self.cfg.tracker)
         self.camera: Camera | None = None
         self.bd: BounceDetector | None = None
@@ -99,17 +124,49 @@ class LiveCameraPipeline:
         self.diag = {"frames": 0, "cands": 0, "max_tracks": 0, "check_s": 0.0, "checks": 0}
         return out
 
+    def _make_detector(self):
+        if self.cfg.mac_detector == "phone":
+            from ..edge_detection import EdgeDetectorConfig
+
+            try:
+                from ..ballcore import NativeDetector
+
+                return NativeDetector(EdgeDetectorConfig(fps=self.cfg.fps_hint, roi_mask=self.roi))
+            except (RuntimeError, OSError, subprocess.CalledProcessError):  # no C++ compiler
+                self.cfg.mac_detector = "mog2"
+                self.warnings.append("no C++ compiler: JPEG cameras use the Mac's MOG2 detector")
+        d = MotionColorBallDetector(self.cfg.detector)
+        d.cfg.roi_mask = self.roi
+        return d
+
+    @property
+    def detector(self):
+        if self._detector is None:
+            self._detector = self._make_detector()
+        return self._detector
+
+    def set_fps(self, fps: float) -> None:
+        """The camera's frame rate (the phone detector's background model depends on it)."""
+        if fps and abs(fps - self.cfg.fps_hint) > 0.5:
+            self.cfg.fps_hint = float(fps)
+            if self.cfg.mac_detector == "phone":
+                self._detector = None
+
     def set_camera(self, camera: Camera | None) -> None:
         self.camera = camera
         if camera is None:
             self.bd = None
-            self.detector.cfg.roi_mask = None
+            self.roi = None
         else:
             from ..pipeline import court_roi_mask
 
             self.bd = BounceDetector(camera, self.court, self.cfg.bounce)
-            self.detector.cfg.roi_mask = court_roi_mask(camera, self.court)
-        self.detector._roi_small = None  # rebuild the downscaled mask
+            self.roi = court_roi_mask(camera, self.court)
+        if self.cfg.mac_detector == "phone" or self._detector is None:
+            self._detector = None  # (re)made with the new ROI on the next JPEG frame
+        else:
+            self._detector.cfg.roi_mask = self.roi
+            self._detector._roi_small = None  # rebuild the downscaled mask
 
     def process(self, frame_index: int, t: float, image: np.ndarray) -> list[dict]:
         """Feed one frame (t on the session clock). Returns output messages."""
@@ -130,7 +187,7 @@ class LiveCameraPipeline:
             self.diag["skipped_frames"] = self.diag.get("skipped_frames", 0) + 1
             return []
         out = self._size_check(*size)
-        roi = self.detector.cfg.roi_mask
+        roi = self.roi
         if roi is not None and cands:
             h, w = roi.shape
             cands = [c for c in cands if 0 <= int(c.v) < h and 0 <= int(c.u) < w and roi[int(c.v), int(c.u)]]
@@ -147,6 +204,8 @@ class LiveCameraPipeline:
 
     def _ingest(self, frame_index: int, t: float, cands: list[Candidate]) -> list[dict]:
         out: list[dict] = []
+        if self._last_t > -1e8 and t - self._last_t > self.cfg.gap_s:
+            out.append({"kind": "gap", "camera": self.camera_id, "t0": self._last_t, "t1": t})
         self._last_t = t
         self.frames += 1
         self.diag["cands"] += len(cands)
@@ -188,18 +247,18 @@ class LiveCameraPipeline:
         ended = self.tracker.pop_finished()
         if self.bd is not None:
             for tr in ended:
-                out += self._check(tr, self._last_t, final=True)
+                out += self._check(tr, self._last_t, final=True, flushed=True)
         return out
 
-    def _check(self, tr: Track, t_now: float, final: bool) -> list[dict]:
+    def _check(self, tr: Track, t_now: float, final: bool, flushed: bool = False) -> list[dict]:
         a = time.monotonic()
         try:
-            return self._check_inner(tr, t_now, final)
+            return self._check_inner(tr, t_now, final, flushed)
         finally:
             self.diag["check_s"] += time.monotonic() - a
             self.diag["checks"] += 1
 
-    def _check_inner(self, tr: Track, t_now: float, final: bool) -> list[dict]:
+    def _check_inner(self, tr: Track, t_now: float, final: bool, flushed: bool = False) -> list[dict]:
         cfg = self.cfg
         mtl = self.cfg.tracker.min_track_len
         if len(tr.points) < max(mtl, 2 * cfg.bounce.min_side_points):
@@ -220,20 +279,53 @@ class LiveCameraPipeline:
         cands, t, uv = self.bd.candidates(sl, t_from=t_from)
         self._scanned_to[tr.track_id] = sl.points[-1].t
         for c in cands:
-            if not final and c["tb"] > sl.points[-1].t - cfg.settle_s:
+            unsettled = c["tb"] > sl.points[-1].t - cfg.settle_s
+            if not final and unsettled:
                 continue
+            # Provisional: the track was cut by a flush (no frames for a while: a stall, the
+            # stream stopping) less than settle_s after the bounce. A track that ended by itself
+            # (ball out of view, played) is judged on its own points and uncertainty as before.
+            unsettled = unsettled and flushed
             if any(abs(c["tb"] - e) <= cfg.bounce.nms_s for e in self._emitted):
                 continue
             ev = self.bd.finalise(c, t, uv, sl)  # expensive bootstrap only for bounces we emit
             if ev is None:
                 continue
+            rr = self._radius_ratio(sl, c["tb"], ev.pixel)
+            if rr is not None and ((cfg.max_ball_radius_ratio is not None and rr > cfg.max_ball_radius_ratio)
+                                   or (cfg.min_ball_radius_ratio is not None and rr < cfg.min_ball_radius_ratio)):
+                self.diag["not_ball"] = self.diag.get("not_ball", 0) + 1  # sized like a shirt, not a ball
+                continue
             ev = self._with_calibration_uncertainty(ev)
+            params = dict(ev.provenance.params or {})
+            if rr is not None:
+                params["r_ratio"] = round(rr, 3)
+            if unsettled:  # cut by a flush less than settle_s after the bounce
+                params["unsettled"] = True
+            ev = ev.model_copy(update={"provenance": ev.provenance.model_copy(update={"params": params})})
             self._emitted.append(ev.t)
             self._emitted = self._emitted[-50:]
             self.bounces += 1
             out.append({"kind": "bounce", "camera": self.camera_id, "event": ev.model_dump(mode="json")})
         return out
 
+
+    def _radius_ratio(self, tr: Track, tb: float, px) -> float | None:
+        """Median blob radius within 60 ms of the bounce / a ball's radius at the bounce point."""
+        if self.camera is None or px is None or px[0] is None:
+            return None
+        rs = [p.radius_px for p in tr.points if abs(p.t - tb) <= 0.06]
+        if not rs:
+            return None
+        r = self.court.ball_radius
+        try:
+            P = self.camera.intersect_plane_z(np.array([px], float), r)
+            depth = float(self.camera.depth(np.asarray(P, float).reshape(1, 3))[0])
+        except Exception:  # pragma: no cover - a ray parallel to the court
+            return None
+        if not np.isfinite(depth) or depth <= 0.2:
+            return None
+        return float(np.median(rs)) / (float(self.camera.K[0, 0]) * r / depth)
 
     def _with_calibration_uncertainty(self, ev: BounceEvent) -> BounceEvent:
         """cov += sigma^2 J J^T, J = d(ground x, y) / d(pixel u, v) at the bounce pixel."""
@@ -270,6 +362,37 @@ def ground_jacobian(camera: Camera, px, z: float, h: float = 0.5) -> np.ndarray 
 
 # --------------------------------------------------------------------------
 # Process entry point
+
+
+def handle_dets(pipe: LiveCameraPipeline, frames: list, size: tuple[int, int], lag: float) -> list[dict]:
+    """One batch of an edge camera's candidates, as the live worker handles it ``lag`` seconds
+    after it arrived. Besides the pipeline's output, returns "ctl" messages recording what was
+    done because of load (frames dropped, bounce checks deferred). The server logs them, and
+    ``bt replay`` applies them, so a call that depended on the Mac's load replays the same."""
+    cfg = pipe.cfg
+    out: list[dict] = []
+    if lag > cfg.drop_after_s and frames:  # far behind: drop these frames to catch up
+        pipe.diag["dropped_stale"] = pipe.diag.get("dropped_stale", 0) + len(frames)
+        out.append({"kind": "ctl", "camera": pipe.camera_id, "op": "drop", "seq0": frames[0][0],
+                    "seq1": frames[-1][0], "t0": frames[0][1], "t1": frames[-1][1]})
+        out.append({"kind": "gap", "camera": pipe.camera_id, "t0": frames[0][1], "t1": frames[-1][1]})
+        frames = []
+    defer = lag > cfg.defer_after_s
+    if frames and defer != pipe.defer_checks:
+        out.append({"kind": "ctl", "camera": pipe.camera_id, "op": "defer", "on": defer, "seq": frames[0][0]})
+        pipe.defer_checks = defer
+    for seq, t, cl in frames:
+        cands = [Candidate(u=u, v=v, radius_px=r, score=sc, area_px=float(np.pi * r * r), elongation=1.0)
+                 for u, v, r, sc in cl]
+        out += pipe.process_candidates(seq, t, cands, size)
+    if frames:
+        out.append({"kind": "progress", "camera": pipe.camera_id, "t": pipe._last_t})
+    return out
+
+
+def flush_ctl(pipe: LiveCameraPipeline, last_seq: int) -> list[dict]:
+    """End all tracks (no frames for a while), recorded for replay."""
+    return [{"kind": "ctl", "camera": pipe.camera_id, "op": "flush", "seq": last_seq}] + pipe.flush()
 
 
 def run_worker(camera_id: str, court_dict: dict, camera_dict: dict | None, in_q, out_q,
@@ -317,12 +440,13 @@ def run_worker(camera_id: str, court_dict: dict, camera_dict: dict | None, in_q,
     threading.Thread(target=decoder, daemon=True).start()
     n, busy, lat_sum, t_stats = 0, 0.0, 0.0, time.monotonic()
     last_seq = -1
+    last_progress = -1e9
     last_frame = time.monotonic()
     flushed = True
     while True:
         msg = decoded.get()
-        if msg is None and not flushed and time.monotonic() - last_frame > 0.4:
-            for o in pipe.flush():  # no frames for a while: finish open tracks now
+        if msg is None and not flushed and time.monotonic() - last_frame > cfg.flush_after_s:
+            for o in flush_ctl(pipe, last_seq):  # no frames for a while: finish open tracks now
                 out_q.put(o)
             flushed = True
         if msg is not None:
@@ -333,6 +457,8 @@ def run_worker(camera_id: str, court_dict: dict, camera_dict: dict | None, in_q,
                 break
             if kind == "timing":  # ("timing", regularize: bool), sent on every (re)connect
                 pipe.set_time_regularization(bool(msg[1]))
+            elif kind == "fps":  # ("fps", frames per second the camera was asked for)
+                pipe.set_fps(float(msg[1]))
             elif kind == "camera":
                 pipe.set_camera(Camera.from_dict(msg[1]) if msg[1] else None)
                 out_q.put({"kind": "camera_set", "camera": camera_id, "calibrated": msg[1] is not None})
@@ -344,6 +470,9 @@ def run_worker(camera_id: str, court_dict: dict, camera_dict: dict | None, in_q,
                         out_q.put(o)
                     n += 1
                     last_seq = seq
+                    if pipe._last_t - last_progress >= 0.05:
+                        out_q.put({"kind": "progress", "camera": camera_id, "t": pipe._last_t})
+                        last_progress = pipe._last_t
                 b = time.monotonic()
                 busy += b - a
                 lat_sum += b - t_recv
@@ -352,22 +481,19 @@ def run_worker(camera_id: str, court_dict: dict, camera_dict: dict | None, in_q,
                 # ("dets", [(seq, t_session, [(u, v, r, score), ...]), ...], (w, h), t_recv)
                 _, frames, size, t_recv = msg
                 a = time.monotonic()
-                lag = a - t_recv
-                if lag > cfg.drop_after_s:  # far behind: drop these frames to catch up
-                    pipe.diag["dropped_stale"] = pipe.diag.get("dropped_stale", 0) + len(frames)
-                    frames = []
-                pipe.defer_checks = lag > cfg.defer_after_s
-                for seq, t, cl in frames:
-                    cands = [Candidate(u=u, v=v, radius_px=r, score=sc, area_px=float(np.pi * r * r), elongation=1.0)
-                             for u, v, r, sc in cl]
-                    for o in pipe.process_candidates(seq, t, cands, size):
-                        out_q.put(o)
-                    n += 1
-                    last_seq = seq
+                for o in handle_dets(pipe, frames, size, a - t_recv):
+                    out_q.put(o)
+                    if o.get("kind") == "ctl" and o.get("op") == "drop":
+                        frames = []
+                n += len(frames)
+                if frames:
+                    last_seq = frames[-1][0]
                 b = time.monotonic()
                 busy += b - a
                 lat_sum += (b - t_recv) * len(frames)
                 last_frame, flushed = b, False
+        while pipe.warnings:
+            out_q.put({"kind": "warning", "camera": camera_id, "text": pipe.warnings.pop(0)})
         now = time.monotonic()
         if now - t_stats >= 1.0:
             dt = now - t_stats

@@ -842,6 +842,68 @@ bounces, from seeding per call (5.02 s: 0.0135 → 0.0113; 11.12 s: 0.0978 → 0
 
 ---
 
+## 28. Second round on the review of defed68: the larger items and the phone apps (2026-11-21)
+
+**Request.** Implement the items left for later in entry 27 (TODO-12, 14, 16-19, 22, 27) and the
+phone app items (TODO-23-25); the owner reinstalls both apps. A point-by-point answer for the
+reviewing agent is in `docs/reviews/2026-11-21-response-to-defed68-review.md`.
+
+**Built** (tests: `tests/test_worker_replay.py`, `mobile/test/*.test.js`):
+* **Replay reproduces load-dependent decisions (TODO-14).** The worker's batch logic is one
+  function (`handle_dets`). Drops, deferrals and silence flushes are logged as `worker_ctl` events
+  with frame numbers, and replay applies them at the same frames.
+* **Stalls (TODO-18).** Flush after 1 s of silence (was 0.4 s). A bounce cut by a flush less than
+  settle_s after it is `unsettled`; an OUT resting only on unsettled reports is silent. The first
+  version also marked tracks that ended by themselves. It silenced 2 two-camera OUTs in a session
+  with no stalls, so it was narrowed to flushes.
+* **Processed coverage (TODO-19).** Gaps (frames > 0.25 s apart, dropped batches) and progress go
+  to the server. A camera that hadn't processed a bounce's frames neither vetoes it nor counts as a
+  miss.
+* **Detector parity (TODO-16).** JPEG cameras run the phone's C++ detector on the Mac: 5.2 ms per
+  frame, against 3.6 for MOG2. It keeps a stopped ball 2 s like the phone does (MOG2: 0.22 s).
+  Older sessions replay with MOG2. Time-based track ending (`max_miss_s`) is built but off; the
+  field-test-3 numbers are in the response file. It reshuffles calls with no way to tell which
+  set is better without ground truth.
+* **Clutter (TODO-17).** For each bounce, the blob radius divided by the radius a ball would have
+  there (`r_ratio`). Field test 3: median 0.9-1.0, largest 2.81. Capped at 3.0, which removes
+  shirt-sized clutter (5-6x) and no real bounce; blobs about 2x a ball's size can't be separated
+  by size.
+* **Reducer (TODO-27).** With all track slots taken, a track too slow for the change detector
+  gives its slot to the new candidate.
+* **Phone apps (TODO-23-25):**
+  * Android checks its timestamp clock and converts if it doesn't match, and reports native
+    detector errors;
+  * iOS: the battery race is fixed, previews encode from a copied buffer, and a missing session
+    clock is flagged;
+  * the app sends the real clock source and retunes the detector to the delivered fps (asked 120,
+    got 58);
+  * the server warns about all three.
+* **CI (TODO-22).** `ci/github-actions.yml` (not active yet: GitHub refused the push of `.github/workflows/` without the token's `workflow` scope; the owner copies it there): the full suite with `BT_REQUIRE_ALL=1` on Linux.
+  On Apple silicon: the C++ detector built with the podspec and CMake flags, checked for no fused
+  multiply-add instructions (with control builds that do show them; the NDK contracts by default),
+  the parity tests on arm64, and the wasm built from source and tested.
+* **Far-half bias (TODO-12).**
+  * The contact geometry is right (ray meets z = ball radius).
+  * The detector centre on synthetic small, blurred, top-lit balls is within 0.1 px across and
+    0.02-0.3 px high: 0.4-5 cm at the far baseline.
+  * So the detector explains centimetres, not the 0.7-1.5 m of field test 2.
+  * `scripts/score_marks.py` measures each camera's bias around chalked spots on court.
+
+**Field test 3 replay:** 21 OUT and 6 FAULT, unchanged by this round. **Golden fixture:**
+unchanged.
+
+**Also found:** the Samsung and the Nothing joined field test 3 over mobile data, not the iPhone's
+hotspot. Clock round trip: 100 and 155 ms, against 5 ms for the hotspot iPhone. The IPv6-only
+hotspot gave the Mac a public IPv6 address, which the QR code advertised. It worked, but by luck
+of carrier and IPv6, and the server was reachable from the internet. Next session: one
+non-filming hotspot phone for everything; every camera's clock round trip under ~20 ms.
+
+**Next.** Reinstall both apps. Next session: chalked target spots for `score_marks.py`; one local
+hotspot; watch the camera cards for "asked/delivers" fps and clock warnings. Then decide
+`max_miss_s` from the marked contacts.
+
+---
+
 ## Current roadmap (as of 2026-11-21)
 
 **Now: confirm on court (entries 24-25 are built)**
@@ -862,10 +924,9 @@ bounces, from seeding per call (5.02 s: 0.0135 → 0.0113; 11.12 s: 0.0978 → 0
 4. Calibrate every camera with the same side A; confirm the "other end" check on the dashboard.
 
 **Next: accuracy and trust**
-* From the review of defed68 (entry 27): frame numbering for jittery timestamps; replay of
-  load-dependent decisions; Mac and phone detector parity on a stopped ball; track-level
-  ball-likeness against clutter; no flush on short stalls; per-camera processed coverage; phone
-  app fixes (measured fps, clock source, native errors, iOS race).
+* From the review of defed68 (entries 27-28): frame numbering for jittery timestamps (browser
+  cameras); time-based track ending (built, off) to be decided from marked contacts; the camera
+  model switch in replay by frame number.
 * Far-half calibration bias under 10 cm (shared-bounce refinement, more cameras).
 * Calibrated uncertainties: with the 2 px floor they match the cameras' disagreement across the
   sidelines and centre line; along the court one camera pair is still 1.6x too tight. Errors

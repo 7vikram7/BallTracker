@@ -61,3 +61,18 @@ test('reducer: disabled passes everything through unchanged', () => {
   assert.equal(out.length, frames.length);
   assert.deepEqual(out[10], frames[10]);
 });
+
+test('reducer: a busy scene does not starve the ball of a track (full rate at its bounce)', () => {
+  // 20 slow-moving blobs (players, shirts) take every track slot before the ball appears at 0.2 s.
+  // Review of defed68 (TODO-27): new candidates then got no track, so the bounce went out at 30 fps.
+  const frames = scene(2.0, false).map((f) => {
+    const c = [...f.c];
+    for (let k = 0; k < 20; k++) {
+      c.push(60 + 45 * k + 25 * Math.sin(2 * Math.PI * 0.3 * f.t + k), 620 + 10 * Math.cos(f.t + k), 9, 0.95);
+    }
+    return { seq: f.seq, t: f.t, c };
+  });
+  const red = new Reducer({ baseHz: 30 });
+  const sent = new Set(runAll(red, frames).map((f) => f.seq));
+  for (let i = Math.round(0.96 * FPS); i <= Math.round(1.04 * FPS); i++) assert.ok(sent.has(i), `frame ${i} near the bounce`);
+});

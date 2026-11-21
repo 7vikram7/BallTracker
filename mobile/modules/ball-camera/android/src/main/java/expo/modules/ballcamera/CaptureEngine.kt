@@ -93,6 +93,16 @@ object CaptureEngine {
   private var frameW = 0
   private var frameH = 0
   private val cands = FloatArray(64 * 4)
+  // Timestamp check (review of defed68): SENSOR_INFO_TIMESTAMP_SOURCE_UNKNOWN promises nothing about
+  // which clock frame timestamps use. The first frames compare each timestamp with now() at
+  // arrival; if they don't match (lag below -50 ms or above 1 s), timestamps are shifted onto
+  // now()'s clock by the smallest lag seen (the fastest frame's delivery time, a few ms).
+  private var tsOffset = 0.0
+  private var tsChecked = false
+  private var tsLagMin = Double.MAX_VALUE
+  private var tsFrames = 0
+  @Volatile private var tsSource = "unchecked"
+  private var detectErrors = 0
   private var rowBuf: ByteBuffer? = null
 
   /** Same clock as the frame timestamps (sensor time base). */
@@ -229,6 +239,12 @@ object CaptureEngine {
     nProcessed = 0
     detectUs = 0.0
     lastSeqTs = 0L
+    tsOffset = 0.0
+    tsChecked = false
+    tsLagMin = Double.MAX_VALUE
+    tsFrames = 0
+    tsSource = "unchecked"
+    detectErrors = 0
   }
 
   private fun analyze(image: ImageProxy) {
@@ -238,7 +254,22 @@ object CaptureEngine {
         d.configure(it, cfg.fps)
         pendingDetector = null
       }
-      val t = image.imageInfo.timestamp / 1e9
+      val raw = image.imageInfo.timestamp / 1e9
+      if (!tsChecked) {
+        tsLagMin = minOf(tsLagMin, now() - raw)
+        if (++tsFrames < 30) return  // not sent until the clock is checked (~0.25 s)
+        tsChecked = true
+        val claimed = if (realtimeTimestamps) "realtime" else "uptime"
+        if (tsLagMin < -0.05 || tsLagMin > 1.0) {
+          tsOffset = tsLagMin
+          tsSource = "converted:$claimed"
+          emit?.invoke("onError", mapOf("message" to
+            "camera timestamps are not on the $claimed clock (off by ${"%.1f".format(tsLagMin)} s): converted"))
+        } else {
+          tsSource = claimed
+        }
+      }
+      val t = raw + tsOffset
       if (statsStart == 0.0) {
         statsStart = t
         batchStart = t
@@ -247,7 +278,14 @@ object CaptureEngine {
       val buf = plane.buffer
       val w = image.width
       val h = image.height
-      val n = d.detect(buf, w, h, plane.rowStride, NativeDetector.FMT_RGBA, cands).coerceAtLeast(0)
+      val nRaw = d.detect(buf, w, h, plane.rowStride, NativeDetector.FMT_RGBA, cands)
+      if (nRaw < 0) {  // the native detector rejected the frame: say so instead of "0 candidates"
+        detectErrors++
+        if (detectErrors == 1 || detectErrors % 300 == 0) {
+          emit?.invoke("onError", mapOf("message" to "native detector error $nRaw ($detectErrors frames)"))
+        }
+      }
+      val n = nRaw.coerceAtLeast(0)
       nProcessed++
       detectUs += d.lastMicros()
       frameW = w
@@ -333,7 +371,8 @@ object CaptureEngine {
     }
     emit?.invoke("onStats", mapOf("fpsCapture" to nProcessed / dt, "fpsProcessed" to nProcessed / dt,
       "detectMs" to if (nProcessed > 0) detectUs / nProcessed / 1000 else 0.0,
-      "dropped" to 0, "thermal" to thermal, "battery" to battery))
+      "dropped" to 0, "thermal" to thermal, "battery" to battery, "tsSource" to tsSource,
+      "detectErrors" to detectErrors))
     statsStart = t
     nProcessed = 0
     detectUs = 0.0
