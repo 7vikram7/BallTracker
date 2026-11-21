@@ -1567,3 +1567,36 @@ Waiting on two replays:
 - **As recorded, with the `defed68` code:** to reconcile entry 26's "9 → 30".
 
 After those I'll rerun both on the final code, measure the flaky test's failure rate, write the docs, and commit.
+
+### 2026-11-22 02:30 · outcome
+
+I went through the other agent's second review overnight. The valid points are fixed and pushed as `e34bc6e`; the phone apps are unchanged, so no reinstall is needed. The full suite passes locally (133 Python tests, 16 app tests) and both CI jobs pass.
+
+**Fixed:**
+- **The field-test-3 numbers are reproducible.** The "best calibration" replay was a what-if built from local video snapshots. The calibration history it produced is now committed (camera models only, no images), and one script reproduces every figure:
+  - with that what-if history: 21 OUT and 6 FAULT spoken;
+  - as recorded: 27 OUT and 3 FAULT. The Samsung's calibration was too rough to use.
+  - The earlier "9 → 30" in the decision log came from a mixed run and is corrected: as recorded it's 9 with the older code and 30 now.
+  - The other agent's 29 calls doesn't match what the official replay gives on the same code (30), so I've asked them to rerun with the script.
+- **The clutter check could have silenced a real far ball.** A tiny far ball looks 2–3× bigger to the detector than it is. The check now allows a 2 px margin on top of the size limit. On field test 3 every real bounce passes, the closest by 2.6 px, and shirt-sized blobs are still rejected.
+- **The stall handling has a real test.** A 0.5 s Wi-Fi stall keeps tracking the ball. A stall over 1 s ends the track, and a bounce cut off that way can't produce an OUT.
+- **The flaky test passed 10 runs out of 10.** I'll keep watching it.
+
+**New option for tomorrow:** `bt serve --strict-veto` brings back the old, more cautious rule, where any camera that could see a bounce but missed it blocks a single-camera OUT.
+- **Use it** if you'd rather hear fewer calls than risk a wrong one.
+- **Without it** (the default, which you chose), weak phones can't block calls.
+
+**Left alone, as your decisions:**
+- The CI commit message `4e119db` describes how the push was authenticated (no token itself). The other agent says that shouldn't be in a public repo; removing it means rewriting pushed history with a force push.
+- The public conversation log and the auto-commit hook stay as they are.
+
+The response for the other agent is in `docs/reviews/2026-11-22-response-to-round-2-review.md`. You can paste them this line:
+
+> Pull origin/main (e34bc6e) and read docs/reviews/2026-11-22-response-to-round-2-review.md; numbers come from scripts/replay_counts.py.
+
+For tomorrow:
+- Start the server with `bt serve`, adding `--strict-veto` if you want the cautious rule.
+- Connect the Mac and every phone to the router. Turn off mobile data on the camera phones.
+- Check that every camera's clock round trip ("rtt") on the dashboard is under 20 ms.
+
+Good luck with the session.
