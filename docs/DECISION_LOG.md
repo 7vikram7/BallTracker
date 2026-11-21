@@ -631,7 +631,9 @@ marked contacts.
     sideline are gone. There is still no ground truth.
 * **Worker speed.** The bounce search's per-split screening and contact-time search are batched
   (one solve for all splits); the tracker scores candidates per track at once and predicts by
-  normal equations. Same bounces on the field data, bit for bit. Busiest 2 minutes: iPhone
+  normal equations. Same bounces on the field data, bit for bit. (The golden rally fixture
+  *did* change in this commit, but because of the calibration floor above, not the batching;
+  see "Checks after review" below.) Busiest 2 minutes: iPhone
   64 → 33% of a core, Samsung 61 → 19%. Over the whole session, per 5 s (typical / p90 /
   peak): iPhone 0.25 / 0.55 / 0.87 cores (live: 0.46 / 1.00 / saturated 20% of the time),
   Samsung 0.25 / 0.33 / 0.51, Nothing 0.01 / 0.03 / 0.11. A worker more than 0.3 s behind skips
@@ -654,6 +656,27 @@ marked contacts.
 * **Replay** now follows the calibration history over time (connect-time model, every
   `calibrated` event), leaves out bounces from a camera whose calibration was too rough at the
   time, and applies the match/drill mode.
+
+**Checks after review** (an outside review of the commit raised two points).
+* **The golden fixture changed, and the commit said "identical bounces".** Both are true, for
+  different reasons. Replaying `tests/golden/edge_rally` on the new code with the calibration
+  floor switched off (`calib_sigma_px=0`) reproduces the old `expected.json` exactly, all 8
+  decisions and every field: the batching changed nothing. The whole change comes from the
+  2 px floor, which is an intended logic change. Positions move by up to 5.5 mm (the two
+  cameras are weighted differently), and one call goes IN → UNCERTAIN: the ball at 11.12 s,
+  truly 5.8 cm in, estimated 3.1 cm in, p_out 0.023 → 0.098. Silent rather than a confident
+  IN, 3 cm from the line: that is the intended behaviour.
+* **Is the 5 cm centre-line FAULT inside the noise?** By the model, no: p_out 0.994, σ across
+  the line 2.1 cm (2.5 σ, two cameras). Is σ honest? The cameras' independent estimates of the
+  same bounce, compared across the line, measure that without ground truth. With the 2 px floor
+  the normalised differences across x (centre line and sidelines) have a robust sd of 0.99 for
+  Samsung–iPhone (0.80 near the centre line, 91 bounces), 0.73 for iPhone–Nothing and 0.37 for
+  Samsung–Nothing: honest, or slightly cautious. Along y (baselines, kitchen) Samsung–iPhone is
+  still 1.6 too tight. A 3 px floor fixes y, but every spoken call stays the same (21 OUT,
+  7 FAULT) and four more INs go silent, so the floor stays at 2 px. What this cannot see: an
+  error shared by both cameras (for example both snapped to the same mis-drawn line). Only
+  marked contacts measure that.
+* Serve FAULTs are still unchecked against what players saw (see Next).
 
 **Next.** On court: Match mode, Court screen, one phone as a non-filming hotspot. Then check the
 FAULT calls against what players saw, and mark contacts on one line for ground truth.
@@ -681,9 +704,11 @@ FAULT calls against what players saw, and mark contacts on one line for ground t
 
 **Next: accuracy and trust**
 * Far-half calibration bias under 10 cm (shared-bounce refinement, more cameras).
-* Calibrated uncertainties: covariances currently underestimate errors by about 3x.
+* Calibrated uncertainties: with the 2 px floor they match the cameras' disagreement across the
+  sidelines and centre line; along the court one camera pair is still 1.6x too tight. Errors
+  shared by all cameras are unmeasured until there is ground truth.
 * The veto weighted by camera recall.
-* Serve and fault calls (FAULT) driven by play state rather than dashboard buttons.
+* Serve FAULTs (built in entry 25, from play state): validate against what players saw.
 
 **Later (from the brief)**
 * Player tracking, then stats (winners, errors, rallies), then coaching.
