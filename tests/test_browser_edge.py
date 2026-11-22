@@ -47,12 +47,17 @@ async def _cdp_run_phone_page(url: str, name: str, user_dir: Path, y4m: Path, se
     errors: list[str] = []
     try:
         async with aiohttp.ClientSession() as s:
-            for _ in range(100):
+            tabs = None
+            for _ in range(300):  # a cold Chrome on a CI runner can take over 10 s to open the port
                 try:
                     tabs = await (await s.get(f"http://127.0.0.1:{port}/json")).json()
                     break
                 except Exception:
+                    if proc.poll() is not None:
+                        raise RuntimeError(f"Chrome exited with code {proc.returncode} before opening the debug port")
                     await asyncio.sleep(0.1)
+            if tabs is None:
+                raise RuntimeError("Chrome did not open its debug port within 30 s")
             page = [t for t in tabs if t["type"] == "page"][0]
             async with s.ws_connect(page["webSocketDebuggerUrl"], max_msg_size=0) as ws:
                 n = 0
