@@ -76,6 +76,12 @@ class BallCameraModule : Module() {
       CaptureEngine.setExposure(options.mode, options.shutterS, options.iso)
     }
 
+    // Say a call ("OUT") out loud (Android text-to-speech, media volume).
+    Function("speak") { text: String ->
+      val ctx = appContext.reactContext ?: return@Function
+      CallVoice.say(ctx, text)
+    }
+
     View(BallCameraView::class) {}
   }
 }

@@ -1622,3 +1622,10 @@ Before you start:
 - Connect the Mac and every phone to the router.
 - Turn off mobile data on the camera phones.
 - On the dashboard, check that each camera's "rtt" (its clock round trip) is under 20 ms.
+
+## 2026-11-22 08:35 · request (session 1661f7c3)
+
+> Just finished a session
+> Detailed analysis
+> 
+> also need implementation that the phones should also call a out altogether. If the server detects a out, there should be a stop session button where the server stops and all the phone apps also stop.

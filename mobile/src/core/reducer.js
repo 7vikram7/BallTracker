@@ -207,7 +207,9 @@ export class Reducer {
    * (one point) are kept: they have no speed yet.
    */
   _slowestTrack() {
-    let best = -1, bestS = this.cfg.minSpeedPxS;
+    let best = -1;
+    /** @type {number} */
+    let bestS = this.cfg.minSpeedPxS;
     this.tracks.forEach((tr, k) => {
       if (tr.pts.length < 2) return;
       const a = tr.pts[0], b = tr.pts[tr.pts.length - 1];

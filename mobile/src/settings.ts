@@ -7,12 +7,13 @@ export type AppSettings = {
   width: number;
   height: number;
   fps: number;
+  speakCalls: boolean; // say the server's calls ("OUT") out loud on this phone
 };
 
 // Android: most phones can't hand more than 30-60 fps to app code; iPhone: 120 is a safe start.
 export const DEFAULTS: AppSettings = Platform.OS === 'android'
-  ? { address: '', name: '', width: 1280, height: 720, fps: 30 }
-  : { address: '', name: '', width: 1920, height: 1080, fps: 120 };
+  ? { address: '', name: '', width: 1280, height: 720, fps: 30, speakCalls: true }
+  : { address: '', name: '', width: 1920, height: 1080, fps: 120, speakCalls: true };
 
 export const RESOLUTIONS: [number, number][] = [
   [1280, 720],

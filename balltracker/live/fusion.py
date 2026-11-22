@@ -23,9 +23,14 @@ alone is not enough: a covariance much bigger than the court puts most of the
 probability outside it, i.e. p(out) -> 1.)
 
 A group is released ``hold_s`` after its first report arrived (waiting for
-slower cameras), or immediately once every calibrated camera has reported. A
-report arriving after its bounce was decided is dropped and counted
-(``late_reports``): judged alone it would make a second decision for one bounce.
+slower cameras), or as soon as every calibrated camera that could still matter
+has reported: cameras that can't see the spot are not waited for, and a camera
+that rarely catches bounces there (hit rate below ``weak_rate``) only for
+``weak_wait_s``. Field 2026-11-22: a phone that never reported a bounce held
+every two-camera call for the full 0.6 s (calls 1.3 s after the bounce instead
+of 0.8 s). A report arriving after its bounce was decided is dropped and counted
+(``late_reports``): judged alone it would make a second decision for one bounce;
+if its camera was counted as missing that bounce, the hit rate is corrected.
 
 Corroboration: if two or more calibrated cameras can see the bounce point but
 only one reported a bounce, an OUT is downgraded to UNCERTAIN (silent). A
@@ -149,6 +154,12 @@ class CameraRecall:
         c[0] += float(hit)
         c[1] += 1.0
 
+    def credit(self, cam: str, dist: float | None) -> None:
+        """A bounce counted as missed was caught after all (its report came late): miss -> hit."""
+        c = self.counts.get((cam, self.band(dist)))
+        if c is not None and c[0] < c[1]:
+            c[0] += 1.0
+
     def rate(self, cam: str, dist: float | None) -> float:
         h, n = self.counts.get((cam, self.band(dist)), (0.0, 0.0))
         return (h + self.prior_rate * self.prior_n) / (n + self.prior_n)
@@ -183,12 +194,14 @@ class LiveJudge:
                  play: PlayConfig | None = None, max_single_camera_std_m: float = 0.15,
                  view: Callable[[str, float, float], tuple[float, np.ndarray] | None] | None = None,
                  single_view_max_m: float = 8.0, far_out_m: float = 1.0, weak_rate: float = 0.4,
-                 lean_in_p: float = 1 / 3, processed: Callable[[str, float], bool] | None = None):
+                 lean_in_p: float = 1 / 3, processed: Callable[[str, float], bool] | None = None,
+                 weak_wait_s: float = 0.25):
         self.court = court
         scale = float(getattr(court, "scale", 1.0) or 1.0)
         # a silent camera that rarely catches bounces at that distance doesn't veto (module docstring)
         self.recall = CameraRecall(scale)
         self.weak_rate = weak_rate
+        self.weak_wait_s = weak_wait_s  # how long a weak camera's report is waited for
         self.lean_in_p = lean_in_p  # a camera whose own p(out) is below this blocks a fused OUT
         # processed(camera, t): did that camera's worker process the frames around t? If not, its
         # silence means nothing (it neither vetoes nor counts as a miss in its hit rate).
@@ -209,18 +222,25 @@ class LiveJudge:
         self.window_s = window_s
         self.hold_s = hold_s
         self._groups: list[_Group] = []
-        self._released: list[float] = []  # times of recently decided groups (late reports join none)
+        # recently decided groups: (time, {camera counted as missing it: its distance}); late reports
+        # join none, but correct the hit rate of a camera that was counted as missing
+        self._released: list[tuple[float, dict[str, float | None]]] = []
+        self._misses: dict[str, float | None] = {}  # filled by _learn_recall for the group being decided
         self.late_reports = 0
         self._last: BounceEvent | None = None
         self.serve: ServeContext | None = None  # applies to the next bounce only
 
     def add(self, ev: BounceEvent, now: float) -> None:
         cam = set(ev.camera_ids)
-        if any(abs(t - ev.t) <= self.window_s for t in self._released) and \
-                not any(abs(g.t - ev.t) <= self.window_s for g in self._groups):
-            # Its bounce was already decided without it (the report arrived after hold_s). Judging
-            # it alone would make a second decision for one bounce, so it is dropped (counted).
+        done = [m for t, m in self._released if abs(t - ev.t) <= self.window_s]
+        if done and not any(abs(g.t - ev.t) <= self.window_s for g in self._groups):
+            # Its bounce was already decided without it (the report arrived after the judge stopped
+            # waiting). Judging it alone would make a second decision for one bounce, so it is
+            # dropped (counted). It did catch the bounce, though: undo a miss counted against it.
             self.late_reports += 1
+            for c in cam:
+                if c in done[0]:
+                    self.recall.credit(c, done[0].pop(c))
             return
         for g in self._groups:
             if abs(g.t - ev.t) <= self.window_s:
@@ -239,17 +259,38 @@ class LiveJudge:
             self._expected = set(expected_cameras)
         ready, keep = [], []
         for g in self._groups:
-            complete = expected_cameras is not None and expected_cameras <= g.cameras()
+            complete = expected_cameras is not None and not self._still_waiting_for(g, expected_cameras, now)
             (ready if complete or now - g.first_arrival >= self.hold_s else keep).append(g)
         self._groups = keep
         out = []
         for g in sorted(ready, key=lambda g: g.t):
+            self._misses = {}
             out.append(self._decide(g))
-            self._released.append(g.t)
+            self._released.append((g.t, self._misses))
         if ready:  # keep a few seconds of released groups (reports arrive within ~1 s)
             last = max(g.t for g in ready)
-            self._released = [t for t in self._released if last - t <= 10.0]
+            self._released = [(t, m) for t, m in self._released if last - t <= 10.0]
         return out
+
+    def _still_waiting_for(self, g: _Group, expected: set[str], now: float) -> set[str]:
+        """The calibrated cameras whose report on this bounce could still come and matter: not those
+        that can't see the spot, and a weak camera there (hit rate < weak_rate) only for weak_wait_s."""
+        missing = expected - g.cameras()
+        if not missing:
+            return set()
+        x = float(np.mean([e.position.x for e in g.events]))
+        y = float(np.mean([e.position.y for e in g.events]))
+        waited = now - g.first_arrival
+        wait = set()
+        for c in missing:
+            if self.can_see is not None and not self.can_see(c, x, y):
+                continue
+            if self.weak_rate > 0 and waited >= self.weak_wait_s:
+                v = self.view(c, x, y) if self.view is not None else None
+                if self.recall.rate(c, None if v is None else float(v[0])) < self.weak_rate:
+                    continue
+            wait.add(c)
+        return wait
 
     def flush(self) -> list[Decision]:
         return self.poll(float("inf"))
@@ -355,7 +396,10 @@ class LiveJudge:
         for c in seeing:
             others = len(reporters - {c})
             if others >= 2 or (others == 1 and in_play):
-                self.recall.update(c, self._dist(c, b), c in reporters)
+                d = self._dist(c, b)
+                self.recall.update(c, d, c in reporters)
+                if c not in reporters:
+                    self._misses[c] = d
 
     def _gate(self, b: BounceEvent, call: LineCallEvent, ps: dict | None) -> str | None:
         """Plausibility checks for an OUT / FAULT about to be spoken (see the module docstring)."""

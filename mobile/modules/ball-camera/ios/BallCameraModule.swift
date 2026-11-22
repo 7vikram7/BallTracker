@@ -1,3 +1,4 @@
+import AVFoundation
 import ExpoModulesCore
 
 struct StartOptions: Record {
@@ -18,6 +19,7 @@ struct ExposureOptions: Record {
 
 public class BallCameraModule: Module {
   private let engine = CaptureEngine.shared
+  private let voice = CallVoice()
 
   public func definition() -> ModuleDefinition {
     Name("BallCamera")
@@ -68,6 +70,35 @@ public class BallCameraModule: Module {
       try self.engine.setExposure(mode: options.mode, shutterS: options.shutterS, iso: options.iso)
     }
 
+    // Say a call ("OUT") out loud. Plays with the ring/silent switch on; other audio is ducked.
+    Function("speak") { (text: String) in
+      self.voice.say(text)
+    }
+
     View(BallCameraView.self) {}
+  }
+}
+
+/// Text-to-speech for the server's calls. One synthesizer, kept alive (a released one stops mid-word);
+/// a new call cuts off the previous one.
+final class CallVoice {
+  private let synth = AVSpeechSynthesizer()
+  private var sessionReady = false
+
+  func say(_ text: String) {
+    DispatchQueue.main.async {
+      if !self.sessionReady {
+        // .playback: audible with the silent switch on; mixWithOthers + duckOthers: music dips, keeps playing.
+        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .voicePrompt, options: [.mixWithOthers, .duckOthers])
+        try? AVAudioSession.sharedInstance().setActive(true)
+        self.sessionReady = true
+      }
+      if self.synth.isSpeaking { self.synth.stopSpeaking(at: .immediate) }
+      let u = AVSpeechUtterance(string: text.capitalized)
+      u.rate = 0.5
+      u.volume = 1.0
+      u.voice = AVSpeechSynthesisVoice(language: "en-US")
+      self.synth.speak(u)
+    }
   }
 }

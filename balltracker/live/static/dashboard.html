@@ -105,6 +105,7 @@
     <button data-ctx="serve:A:right">Serve A·right</button><button data-ctx="serve:A:left">Serve A·left</button>
     <button data-ctx="serve:B:right">Serve B·right</button><button data-ctx="serve:B:left">Serve B·left</button>
   </details>
+  <button class="danger" id="stopsess" title="End the session: every phone stops its camera, the server writes the session summary and report, then exits">Stop session</button>
   <span class="mut" id="conn">connecting…</span>
 </header>
 <div id="warns"></div>
@@ -417,11 +418,24 @@ function renderStatus(m) {
 }
 
 // ---------------------------------------------------------------- websocket
+let sessionEnded = false;
+$("stopsess").onclick = async () => {
+  if (!confirm("Stop the session?\n\nEvery phone stops its camera and goes back to its start screen. The server saves the session summary and report, then exits (start it again with bt serve).")) return;
+  $("stopsess").disabled = true; sessionEnded = true;
+  try {
+    const r = await (await fetch("/api/stop", { method: "POST" })).json();
+    $("conn").textContent = "session ended" + (r.report ? ` · report: ${r.report}` : "");
+  } catch (e) { $("conn").textContent = "session ending…"; }
+};
+
 function connect() {
   ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/dashboard`);
   let initial = true; setTimeout(() => initial = false, 1500);
   ws.onopen = () => { $("conn").textContent = "live"; };
-  ws.onclose = () => { $("conn").textContent = "disconnected, retrying…"; setTimeout(connect, 1500); };
+  ws.onclose = () => {
+    if (sessionEnded) { $("conn").textContent = "session ended: server stopped"; return; }
+    $("conn").textContent = "disconnected, retrying…"; setTimeout(connect, 1500);
+  };
   ws.onmessage = (ev) => {
     const m = JSON.parse(ev.data);
     if (m.type === "state") {
@@ -452,6 +466,7 @@ function connect() {
     else if (m.type === "report") { reports.push(m); if (reports.length > 200) reports.shift(); renderCourt(); }
     else if (m.type === "ball") { drawBall(m); }
     else if (m.type === "warning") { console.warn(m.text); }
+    else if (m.type === "session_end") { sessionEnded = true; $("conn").textContent = "session ending…"; }
   };
 }
 fetch("/api/court").then((r) => r.json()).then((c) => { court = c; renderCourt(); connect(); });

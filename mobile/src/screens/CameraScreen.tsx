@@ -10,7 +10,7 @@ import { displayHost, toEdgeUrl } from '../core/serverAddress.js';
 import { CameraSession, initialState } from '../core/session.js';
 import { AppSettings } from '../settings';
 
-type Props = { settings: AppSettings; onExit: () => void };
+type Props = { settings: AppSettings; onExit: (notice?: string) => void };
 type SessionState = import("../core/session.js").SessionState;
 
 const EXPOSURES = [
@@ -39,7 +39,7 @@ export default function CameraScreen({ settings, onExit }: Props) {
       settings: {
         url, name: settings.name, width: settings.width, height: settings.height, fps: settings.fps,
         device: `${Device.manufacturer ?? ''} ${Device.modelName ?? ''}`.trim(), platform: Platform.OS,
-        appVersion: '0.1.0',
+        appVersion: '0.1.0', speakCalls: settings.speakCalls !== false,
       },
       onState: setSt,
     });
@@ -50,6 +50,11 @@ export default function CameraScreen({ settings, onExit }: Props) {
       ScreenOrientation.unlockAsync().catch(() => {});
     };
   }, []);
+
+  // Stop session on the dashboard: the session has stopped the camera; back to the start screen.
+  useEffect(() => {
+    if (st.ended && st.phase === 'idle') onExit(st.ended);
+  }, [st.ended, st.phase]);
 
   // Flash the call ("OUT" / "FAULT") for 1.5 s.
   useEffect(() => {

@@ -12,11 +12,12 @@ import { ALGO, ALGO_VERSION, base64ToBytes } from './protocol.js';
  * What the native module must provide (modules/ball-camera/src/BallCameraModule.ts).
  * @typedef {object} NativeCamera
  * @property {() => number} now
- * @property {(opts: {width: number, height: number, fps: number, previewEverySec?: number, previewQuality?: number, batchMs?: number, detector?: any}) => Promise<{width: number, height: number, fps: number, format?: string}>} start
+ * @property {(opts: {width: number, height: number, fps: number, previewEverySec?: number, previewQuality?: number, batchMs?: number, detector?: any}) => Promise<{width: number, height: number, fps: number, format?: string, timestampSource?: string}>} start
  * @property {() => Promise<void>} stop
  * @property {(cfg: object) => void} setDetectorConfig
  * @property {(opts: any) => Promise<any>} setExposure
  * @property {(event: any, fn: (payload: any) => void) => {remove: () => void}} addListener
+ * @property {(text: string) => void} [speak]  say a call out loud (text-to-speech); absent in old builds
  */
 
 /**
@@ -33,6 +34,7 @@ import { ALGO, ALGO_VERSION, base64ToBytes } from './protocol.js';
  * @property {string} [platform]
  * @property {string} [appVersion]
  * @property {object} [reduce]  phone-side data reduction settings (reducer.js); the server can override
+ * @property {boolean} [speakCalls]  say the server's calls ("OUT", "FAULT") out loud (default true)
  */
 
 /**
@@ -41,13 +43,14 @@ import { ALGO, ALGO_VERSION, base64ToBytes } from './protocol.js';
  * @property {string} connection  'connecting' | 'connected' | 'disconnected' | 'stopped'
  * @property {string|null} serverName
  * @property {boolean} calibrated
- * @property {{width: number, height: number, fps: number, format?: string}|null} camera
+ * @property {{width: number, height: number, fps: number, format?: string, timestampSource?: string}|null} camera
  * @property {{fpsCapture: number, fpsProcessed: number, detectMs: number, dropped: number, thermal: string, battery?: number}} native
  * @property {{proc_fps?: number, fps_in?: number, drops?: number, rtt_ms?: number|null, latency_ms?: number|null, calibrated?: boolean}|null} server
  * @property {{sentFrames: number, droppedFrames: number, kbps: number}} link
  * @property {number} candidatesPerSec
  * @property {{text: string, at: number}|null} lastCall
  * @property {string|null} error
+ * @property {string|null} ended  set when the server ended the session (Stop session on the dashboard)
  */
 
 /** @returns {SessionState} */
@@ -63,6 +66,7 @@ export const initialState = () => ({
   candidatesPerSec: 0,
   lastCall: null, // {text, at}
   error: null,
+  ended: null, // the server's reason, when it ended the session
 });
 
 export class CameraSession {
@@ -190,6 +194,15 @@ export class CameraSession {
         break;
       case 'call':
         this._set({ lastCall: { text: m.text, at: this.wallNow() } });
+        // Every phone says the call, so players hear it wherever they are on the court.
+        if (m.text && this.settings.speakCalls !== false && this.native.speak) {
+          try { this.native.speak(String(m.text)); } catch (_) { /* no speech on this phone */ }
+        }
+        break;
+      case 'session_end':
+        // Stop session on the dashboard: stop the camera and don't reconnect (the server is going away).
+        this._set({ ended: m.reason || 'The session was ended from the dashboard.' });
+        this.stop();
         break;
       default:
         break;
@@ -215,7 +228,6 @@ export class CameraSession {
     this.client.sendPreview(p.seq, p.t, p.width, p.height, bytes);
   }
 
-  /** @param {{fpsCapture: number, fpsProcessed: number, detectMs: number, dropped: number, thermal: string, battery?: number}} st */
   /**
    * The camera may deliver fewer frames than asked (field test 3: a Samsung asked for 120 gave 58).
    * The detector's background model is tuned by frame rate, so after 3 s below 85% of the asked
@@ -224,8 +236,10 @@ export class CameraSession {
    */
   _noteFps(fps) {
     const asked = this.state.camera ? this.state.camera.fps : 0;
-    if (!asked || !(fps > 0)) return;
-    this._fpsSeen = [...(this._fpsSeen || []), fps].slice(-3);
+    if (!asked || fps === undefined || !(fps > 0)) return;
+    /** @type {number[]} */
+    const seen = [...(this._fpsSeen || []), fps].slice(-3);
+    this._fpsSeen = seen;
     const low = this._fpsSeen.length === 3 && this._fpsSeen.every((f) => f < 0.85 * asked);
     if (!low) return;
     const med = [...this._fpsSeen].sort((a, b) => a - b)[1];
@@ -237,6 +251,7 @@ export class CameraSession {
     }
   }
 
+  /** @param {{fpsCapture: number, fpsProcessed: number, detectMs: number, dropped: number, thermal: string, battery?: number, tsSource?: string, detectErrors?: number}} st */
   _onNativeStats(st) {
     this._noteFps(st.fpsCapture);
     const now = this.wallNow();

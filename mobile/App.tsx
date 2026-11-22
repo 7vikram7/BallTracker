@@ -10,6 +10,7 @@ import { AppSettings, loadSettings, saveSettings } from './src/settings';
 export default function App() {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [streaming, setStreaming] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
     loadSettings().then(setSettings);
@@ -26,11 +27,19 @@ export default function App() {
     <SafeAreaProvider>
       <StatusBar hidden />
       {streaming ? (
-        <CameraScreen settings={settings} onExit={() => setStreaming(false)} />
+        <CameraScreen
+          settings={settings}
+          onExit={(n) => {
+            setNotice(n ?? null);
+            setStreaming(false);
+          }}
+        />
       ) : (
         <ConnectScreen
           initial={settings}
+          notice={notice}
           onStart={(s) => {
+            setNotice(null);
             setSettings(s);
             saveSettings(s);
             setStreaming(true);

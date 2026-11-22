@@ -241,3 +241,47 @@ test('session: a camera delivering fewer frames than asked gets its detector tun
   assert.equal(ws.json().filter((m) => m.type === 'stats').at(-1).fps_detector, 58);
   await s.stop();
 });
+
+test('session: every phone says the call out loud unless set to silent', async () => {
+  for (const speakCalls of [undefined, false]) {
+    FakeWebSocket.reset();
+    const native = new MockNative();
+    const s = new CameraSession({ native, WebSocketImpl: FakeWebSocket,
+      settings: { url: 'ws://x/ws/edge', name: 'c', width: 1920, height: 1080, fps: 120, speakCalls } });
+    await s.start();
+    const ws = FakeWebSocket.last();
+    ws.open();
+    ws.receive({ type: 'call', text: 'OUT' });
+    assert.equal(s.state.lastCall.text, 'OUT'); // shown either way
+    assert.deepEqual(native.spoken, speakCalls === false ? [] : ['OUT']);
+    await s.stop();
+  }
+  // an app build without speech (old native module) still shows the call
+  FakeWebSocket.reset();
+  const old = new MockNative();
+  old.speak = undefined;
+  const s = new CameraSession({ native: old, WebSocketImpl: FakeWebSocket,
+    settings: { url: 'ws://x/ws/edge', name: 'c', width: 1920, height: 1080, fps: 120 } });
+  await s.start();
+  FakeWebSocket.last().open();
+  FakeWebSocket.last().receive({ type: 'call', text: 'OUT' });
+  assert.equal(s.state.lastCall.text, 'OUT');
+  await s.stop();
+});
+
+test('session: Stop session on the dashboard stops the camera and it does not reconnect', async () => {
+  FakeWebSocket.reset();
+  const native = new MockNative();
+  const s = new CameraSession({ native, WebSocketImpl: FakeWebSocket,
+    settings: { url: 'ws://x/ws/edge', name: 'c', width: 1920, height: 1080, fps: 120 } });
+  await s.start();
+  const ws = FakeWebSocket.last();
+  ws.open();
+  ws.receive({ type: 'session_end', reason: 'The session was ended from the dashboard.' });
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(s.state.ended, 'The session was ended from the dashboard.');
+  assert.equal(s.state.phase, 'idle');
+  assert.equal(native.stopped, 1);
+  await new Promise((r) => setTimeout(r, 700)); // past the first reconnect delay
+  assert.equal(FakeWebSocket.instances.length, 1);
+});

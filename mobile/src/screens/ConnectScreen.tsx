@@ -8,9 +8,9 @@ import { isSimulator } from '../../modules/ball-camera';
 import { toEdgeUrl } from '../core/serverAddress.js';
 import { AppSettings, FRAME_RATES, RESOLUTIONS } from '../settings';
 
-type Props = { initial: AppSettings; onStart: (s: AppSettings) => void };
+type Props = { initial: AppSettings; notice?: string | null; onStart: (s: AppSettings) => void };
 
-export default function ConnectScreen({ initial, onStart }: Props) {
+export default function ConnectScreen({ initial, notice, onStart }: Props) {
   const [s, setS] = useState<AppSettings>(initial);
   const [scanning, setScanning] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -117,6 +117,14 @@ export default function ConnectScreen({ initial, onStart }: Props) {
           : 'iPhone: 120 or 240 fps gives the best accuracy. Use bright light.'}
       </Text>
 
+      <Text style={styles.label}>Calls</Text>
+      <View style={styles.row}>
+        <Chip label="Say calls out loud" on={s.speakCalls !== false} onPress={() => setS({ ...s, speakCalls: true })} />
+        <Chip label="Silent" on={s.speakCalls === false} onPress={() => setS({ ...s, speakCalls: false })} />
+      </View>
+      <Text style={styles.hint}>Every phone set to speak says “Out” when the server calls one. Turn the media volume up.</Text>
+
+      {notice && <Text style={styles.notice}>{notice}</Text>}
       {error && <Text style={styles.error}>{error}</Text>}
       <Pressable style={[styles.button, styles.start]} onPress={start}>
         <Text style={styles.buttonText}>Start camera</Text>
@@ -144,6 +152,7 @@ const styles = StyleSheet.create({
   hint: { color: '#888', fontSize: 12 },
   warn: { color: '#e0b000', fontSize: 13 },
   error: { color: '#ff6b6b', fontSize: 14, marginTop: 8 },
+  notice: { color: '#7fd3ff', fontSize: 14, marginTop: 8 },
   row: { flexDirection: 'row', gap: 8, alignItems: 'center', flexWrap: 'wrap' },
   input: { backgroundColor: '#1c1c1c', color: '#fff', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, fontSize: 16 },
   button: { backgroundColor: '#2d6cdf', borderRadius: 8, paddingVertical: 12, paddingHorizontal: 18, alignItems: 'center' },

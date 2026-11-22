@@ -78,4 +78,10 @@ export class SimCamera {
   async setExposure(opts) {
     return { mode: opts.mode, shutterS: opts.shutterS ?? null, iso: null, simulated: true };
   }
+
+  /** The simulator has no voice: it keeps what it was asked to say (tests read it).
+   * @param {string} text */
+  speak(text) {
+    this.spoken = [...(this.spoken || []), text];
+  }
 }

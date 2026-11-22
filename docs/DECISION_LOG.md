@@ -962,9 +962,83 @@ the public evolution log and the auto-commit hook.
 
 ---
 
-## Current roadmap (as of 2026-11-21)
+## 30. Field test 4: four phones on a router; calls on every phone, Stop session, faster calls (2026-11-22)
 
-**Now: confirm on court (entries 24-25 are built)**
+**Session** (`20261122-071401`, 61 min, code e34bc6e + log commit, `bt serve --record`, router, no
+internet). iPhone 17 (1080p 120 fps) behind baseline A, left; Samsung S948B (1080p 120) behind
+baseline B, right; Nothing (720p 30) behind baseline A, right; Redmi 8A (720p 30) behind baseline B,
+centre, 1.6 m high. Cameras calibrated at 13, 18, 25 and 34 minutes: 27 minutes with all four.
+
+**What it called.** 1 121 decisions (393 seen by 2+ cameras), 25 OUT spoken, no FAULT (62 serves
+recognised, all landed in). Every two-camera OUT had both cameras saying OUT on their own.
+Delay bounce → call: 0.6-0.7 s with one camera, 1.2-1.6 s with two.
+
+**Findings.**
+* Router: clock round trips iPhone 9 ms, Samsung 25, Nothing 33, Redmi 59 (field test 3 on
+  mobile data: 100-155 ms). The Samsung's bounce times run a steady 14.6 ms ahead of the iPhone's
+  (clock offset; within the 80 ms grouping window, no effect on positions).
+* Redmi: 0 bounces in 33 minutes. It delivered 19 fps (asked 30), detection took 46 ms a frame,
+  0.04 candidates a frame, and its mount moved 25-220 px again and again. Not useful as it is.
+* Nothing: 139 reports, catches 10-14% of bounces others saw on its half, none far away.
+* Far-half bias: on half B the iPhone (13-17 m away) puts bounces 30-50 cm further from itself
+  than the Samsung (near) does; on half A the Samsung (far) differs from the iPhone (near) by
+  about 10 cm. Fusion trusts the near camera (±1-3 cm against ±10-20), so two-camera calls follow
+  it, but a lone iPhone call near a far line can be wrong: 1010.3 s, sideline right, +16 cm, iPhone
+  alone (the Samsung wasn't calibrated yet), where the iPhone reads +15 to +36 cm more out than the
+  Samsung on the same line. Likely a wrong OUT. Which camera is biased needs marked contacts.
+* Close calls (both cameras OUT but within 5 cm on the near camera): 1371.0 s (+4 cm), 2151.8 s
+  (+3 cm), 3389.2 s (+5 cm).
+* The two calls before the Samsung's calibration (929.8 s, 974.1 s) were iPhone alone, while the
+  Samsung ran on yesterday's saved calibration (not used for calls).
+* The session was not closed cleanly: no summary was written (Stop session, below, closes it properly).
+
+**Replay didn't match live: fixed.** `scripts/replay_counts.py` at e34bc6e gave 23 calls; live
+spoke 25. Two causes:
+* the replay judge used each camera's last calibration for the whole session, so the Samsung's
+  final calibration vetoed the two early calls;
+* it decided a held bounce at the next report's arrival (sometimes many seconds later, on another
+  calibration), not when its wait ran out.
+Now it uses the calibration in use and the connection state at the time (sessions logged from
+2026-11-21 on; older ones as before) and decides each bounce at its due time. Same reports:
+25 calls, identical to live call by call. Test:
+`test_replay_judges_with_the_calibration_in_use_at_the_time`. (The Samsung gives 619 reports in
+replay, 666 live: unexplained, no call affected; roadmap.)
+
+**Faster calls.** The judge waited `hold_s` (0.6 s) for every calibrated camera, so the Redmi,
+which never reported, held every two-camera call. Now it doesn't wait for a camera that can't see
+the spot, and waits 0.25 s (`weak_wait_s`) for one that catches fewer than `weak_rate` of bounces
+there. A late report from such a camera is still dropped (one decision per bounce) but corrects
+its hit rate, so a slow camera doesn't drift into "weak" because its reports come late. Same
+reports, replay: the 25 calls go out 0.35 s sooner (live: about 0.9 s after the bounce instead
+of 1.3 s); the calls are the same. `--strict-veto` keeps the full wait.
+
+**Every phone says the call.** The server already sent each call to the phones (they flashed it).
+Now the app says it ("Out"): iOS AVSpeechSynthesizer (plays with the silent switch on), Android
+TextToSpeech (media volume; manifest declares the TTS service for Android 11+). *Say calls out
+loud* / *Silent* on the start screen. Browser phones speak it too (speech unlocked by the Start tap).
+Old app builds ignore the speech and still flash.
+
+**Stop session.** Dashboard button (with a confirmation): the server sends `session_end` to every
+phone and dashboard; app phones stop the camera, go back to the start screen with a notice and
+don't reconnect; browser phones stop. After 1 s (last detections) the server shuts down: workers
+flushed, last decisions, summary, and now `report.md` written, process exits. Ctrl+C saves the same
+but leaves phones retrying (to restart the server with other options).
+
+**Checked.** 139 Python tests, 18 app tests, `tsc` clean (also fixed 5 older type errors). The
+Android release APK and the iOS Release build compile.
+
+---
+
+## Current roadmap (as of 2026-11-22)
+
+**Now (from field test 4, entry 30)**
+* Install the new apps (calls spoken on every phone, Stop session); end sessions with Stop session.
+* Replace the Redmi (or move it close, stable mount); keep the Nothing for its near half only.
+* Find which camera is biased on the far half: chalk 10 marks just inside / outside the far
+  baseline and sideline, bounce on each, compare (`scripts/score_marks.py`).
+* Why the Samsung gives 7% fewer reports in replay than live.
+
+**Then: confirm on court (entries 24-25 are built)**
 * Next session in Match mode with the Court screen: check the serve FAULT calls against what the
   players saw; watch the coverage map when placing cameras (1-1.5 m beyond each sideline).
 * Ground truth: mark contacts on one line (chalk drill) during the session.

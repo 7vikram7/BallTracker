@@ -19,9 +19,13 @@ declare class BallCameraNative extends NativeModule<BallCameraEvents> {
   stop(): Promise<void>;
   setDetectorConfig(config: DetectorConfig): void;
   setExposure(options: ExposureOptions): Promise<ExposureState>;
+  /** Say a call out loud (text-to-speech), over any earlier one. */
+  speak(text: string): void;
 }
 
 export type BallCameraApi = Pick<BallCameraNative, 'now' | 'getFormats' | 'start' | 'stop' | 'setDetectorConfig' | 'setExposure'> & {
+  speak?: (text: string) => void;
+} & {
   addListener<E extends keyof BallCameraEvents>(event: E, fn: BallCameraEvents[E]): { remove(): void };
   isSimulator?: boolean;
 };

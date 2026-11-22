@@ -188,6 +188,8 @@ class LiveServer:
         self.app_urls: list[str] = []  # ws:// addresses for the native app (protocol 2)
         self.ca_url: str | None = None
         self._stop = threading.Event()
+        self.shutdown = asyncio.Event()  # set by Stop session (dashboard); run() then shuts down cleanly
+        self.stopping = False
         self._loop: asyncio.AbstractEventLoop | None = None
         self._tasks: list[asyncio.Task] = []
         (self.session_dir / "court.json").write_text(json.dumps(court.to_dict(), indent=2))
@@ -997,6 +999,29 @@ class LiveServer:
         await self._broadcast(self.state())
         return web.json_response({"ok": True, "mode": self.play_mode})
 
+    async def stop_session(self, reason: str = "The session was ended from the dashboard.",
+                           grace_s: float = 1.0) -> None:
+        """Stop session: every phone is told to stop (and not reconnect), the dashboards are told, and
+        after ``grace_s`` (the phones send their last detections) the server shuts down cleanly:
+        workers flushed, last decisions made, summary and report written."""
+        if self.stopping:
+            return
+        self.stopping = True
+        self._log_event({"type": "session_stop", "t": self.now(), "reason": reason})
+        msg = {"type": "session_end", "reason": reason}
+        for cam in list(self.cams.values()):
+            if cam.ws is not None and not cam.ws.closed:
+                await self._send_safe(cam.ws, msg)
+        await self._broadcast(msg)
+        await asyncio.sleep(grace_s)
+        self.shutdown.set()
+
+    async def api_stop(self, request: web.Request) -> web.Response:
+        if self._loop is not None and not self.stopping:
+            self._loop.create_task(self.stop_session())
+        return web.json_response({"ok": True, "session": str(self.session_dir),
+                                  "report": str(self.session_dir / "report.md")})
+
     async def api_context(self, request: web.Request) -> web.Response:
         body = await request.json()
         if body.get("mode") == "serve":
@@ -1062,6 +1087,7 @@ class LiveServer:
         app.router.add_post("/api/cameras/{name}/proposal", self.api_proposal)
         app.router.add_post("/api/context", self.api_context)
         app.router.add_post("/api/play_mode", self.api_play_mode)
+        app.router.add_post("/api/stop", self.api_stop)
         app.router.add_get("/ca.crt", self.ca_cert)
         app.router.add_get("/qr.svg", self.qr)
         app.router.add_get("/static/{name}", self.static_file)
@@ -1115,6 +1141,12 @@ class LiveServer:
             log.error("could not write session summary: %s", e)
         self._stop.set()
         self.events_f.close()
+        try:
+            from .report import write_report
+
+            write_report(self.session_dir)
+        except Exception as e:  # pragma: no cover - the events are saved; `bt report` can redo it
+            log.error("could not write the session report: %s", e)
 
 
 def phone_warnings(name: str, fps_req: float, ph: dict, ts_source: str) -> list[dict]:
@@ -1250,12 +1282,12 @@ def run(court: CourtSpec, data_dir: Path, *, host: str | None = None, https_port
         if tls and ips:
             print(f"  CA certificate for phones: http://{ips[0]}:{http_port}/ca.crt  (optional, removes warnings)")
         print(f"  Session folder:           {srv.session_dir}")
-        print("  Ctrl+C to stop.\n", flush=True)
+        print("  Stop session on the dashboard (or Ctrl+C) to stop.\n", flush=True)
         try:
-            while True:
-                await asyncio.sleep(3600)
+            await srv.shutdown.wait()
         finally:
             await runner.cleanup()
+        print(f"\nSession stopped from the dashboard. Report: {srv.session_dir / 'report.md'}", flush=True)
 
     try:
         asyncio.run(main())

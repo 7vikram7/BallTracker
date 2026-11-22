@@ -27,6 +27,12 @@ It prints three addresses:
 The Mac and the phones must be on the **same Wi-Fi**. The first time, macOS
 asks whether Python may accept incoming connections: allow it.
 
+**To end the session**, click **Stop session** (top right of the dashboard). Every phone stops its
+camera and goes back to its start screen (app phones show "The session was ended from the
+dashboard"; they don't keep retrying). The server makes the last calls, writes the session summary
+and `report.md` in the session folder, and exits. **Ctrl+C** in the terminal also saves everything,
+but leaves the phones retrying (handy to restart the server with other options: they reconnect).
+
 ## 2. Connect each phone
 
 1. Scan the QR code on the dashboard, or type the phone address in Safari / Chrome.
@@ -62,6 +68,12 @@ Phones with the native app ([mobile/README.md](../mobile/README.md)) find the ba
 phone and send only its position, so the Mac isn't the limit and iPhones can run at 120–240 fps.
 In the app, tap **Scan QR** and scan the dashboard's second code (*Add a phone with the app*), or
 type the Mac's address. No certificate is needed. App phones and browser phones can be mixed.
+
+**Every phone says the calls.** When the server calls OUT or FAULT, each app phone says it out
+loud ("Out") and flashes it on screen, so players hear it wherever they are on the court. Turn
+the phone's media volume up (iPhones speak with the silent switch on). Choose **Silent** on the
+app's start screen for a phone that shouldn't speak. Browser phones speak too (tick *Say calls
+out loud* before **Start**).
 
 ## 3. Calibrate each camera (once per mounting position)
 
@@ -128,7 +140,8 @@ A scaled-down floor court works the same way: start the server with `bt serve --
   only kitchen, baseline and sideline faults are called. **Override ▸** in the header forces the
   next bounce to be judged as a particular serve.
 * Each call appears on the court diagram and in the **Calls** table (with *serve* / *rally*),
-  the nearest line and the distance from it. Typical delay: 1–1.5 s.
+  the nearest line and the distance from it. Typical delay: 0.6–1 s (a camera that rarely
+  catches bounces is waited for 0.25 s at most, entry 30).
 * **When it stays silent**: the ball was in; or the estimate was too uncertain (*unsure*); or only
   one camera saw a bounce that another camera could also see (*OUT? (unconfirmed)*); or it was a
   second bounce; or a check failed (*OUT? (checked)*; hover for why): the ball would have been

@@ -87,9 +87,24 @@ def load_session(session: Path | str, calibrations: Path | str | None = None) ->
         # sessions before 2026-11-21 ran MOG2 on JPEG cameras; later ones log the detector
         mac_detector = (con[-1].get("mac_detector") if con else None) or "mog2"
         fps = float(con[-1].get("fps") or 0) if con else 0.0
+        # when the camera was connected (the live judge only expects connected cameras)
+        online, t_on = [], None
+        for e in events:
+            if e.get("camera") != d.name:
+                continue
+            if e.get("type") == "camera_connected":
+                t_on = float(e["t"]) if t_on is None else t_on
+            elif e.get("type") == "camera_disconnected" and t_on is not None:
+                online.append((t_on, float(e["t"])))
+                t_on = None
+        if t_on is not None:
+            online.append((t_on, float("inf")))
+        # sessions from 2026-11-21 on log the model in use at each connection; older ones don't,
+        # and their judge replay keeps the last calibration throughout (as before)
+        logged = bool(con) and all("camera_model" in e for e in con)
         cams[d.name] = {"kind": kind, "dir": d, "camera": cam, "regularize_time": regularize,
                         "timeline": sorted(timeline, key=lambda a: a[0]), "ctl": ctl,
-                        "mac_detector": mac_detector, "fps": fps}
+                        "mac_detector": mac_detector, "fps": fps, "online": online if logged else None}
     contexts = [(e["t"], e["context"]) for e in events if e.get("type") == "context"]
     # match (serves recognised) or drill: the mode at the start, then every change
     start_mode = ((manifest or {}).get("settings") or {}).get("play_mode", "match")
@@ -227,8 +242,27 @@ def judge_reports(court: CourtSpec, cameras: dict, reports: dict[str, list[Bounc
     from .upkeep import MAX_RMS_PX, calibration_ready
 
     lim = MAX_RMS_PX if max_rms_px is None else max_rms_px
-    # can_see / view / expected cameras: the last calibration of each camera
-    models = {n: (c["timeline"][-1][1] if c.get("timeline") else c["camera"]) for n, c in cameras.items()}
+    # can_see / view / expected cameras: as live, the calibration in use at the time and only while
+    # the camera was connected (field 2026-11-22: a camera on yesterday's rough calibration, later
+    # recalibrated, vetoed two calls in replay that live spoke). Older sessions without that log:
+    # the last calibration throughout.
+    last = {n: (c["timeline"][-1][1] if c.get("timeline") else c["camera"]) for n, c in cameras.items()}
+    now = [float("-inf")]
+
+    def model(n: str):
+        c = cameras.get(n) or {}
+        if c.get("online") is None:
+            return last.get(n)
+        t = now[0]
+        if not any(a <= t <= b for a, b in c["online"]):
+            return None
+        m = None
+        for t0, cam in c.get("timeline") or ():
+            if t0 > t:
+                break
+            m = cam
+        return m
+
     def processed(n: str, t: float) -> bool:
         # Replay has every frame up front: covered if inside the recording and outside its gaps.
         c = cameras.get(n) or {}
@@ -236,17 +270,32 @@ def judge_reports(court: CourtSpec, cameras: dict, reports: dict[str, list[Bounc
         return lo <= t and covered(hi, c.get("gaps", ()), t)
 
     judge = LiveJudge(court, PickleballLineCaller(court, LineCallConfig()), hold_s=hold_s,
-                      can_see=lambda n, x, y: camera_can_see(models.get(n), court, x, y),
-                      view=lambda n, x, y: camera_view(models.get(n), x, y), processed=processed,
+                      can_see=lambda n, x, y: camera_can_see(model(n), court, x, y),
+                      view=lambda n, x, y: camera_view(model(n), x, y), processed=processed,
                       weak_rate=weak_rate)
-    expected = {n for n, m in models.items() if calibration_ready(m, lim)}
     queue = sorted(((ev.t + ARRIVAL_DELAY_S, ev) for evs in reports.values() for ev in evs), key=lambda a: a[0])
     ctx = sorted(contexts)
     md = sorted(modes, key=lambda a: a[0])
     ci = mi = 0
     out: list[dict] = []
+    def poll(t: float) -> list[dict]:
+        # Decide each held bounce when live would have (the server polls every 50 ms): when its wait
+        # ran out, not at the next report's arrival, which may be seconds later on another calibration.
+        res = []
+        while True:
+            # (+1 us: first_arrival + hold_s - first_arrival can round to just under hold_s)
+            due = sorted(x + 1e-6 for g in judge._groups for x in (g.first_arrival + judge.weak_wait_s,
+                                                                  g.first_arrival + judge.hold_s)
+                         if now[0] < x + 1e-6 < t)
+            if not due:
+                break
+            now[0] = due[0]
+            res += judge.poll(due[0], {n for n in cameras if calibration_ready(model(n), lim)})
+        now[0] = t
+        return res + judge.poll(t, {n for n in cameras if calibration_ready(model(n), lim)})
+
     for arrival, ev in queue:
-        out += [decision_dict(d, None) for d in judge.poll(arrival, expected)]
+        out += [decision_dict(d, None) for d in poll(arrival)]
         while ci < len(ctx) and ctx[ci][0] <= arrival:
             judge.serve = _parse_context(ctx[ci][1])
             ci += 1

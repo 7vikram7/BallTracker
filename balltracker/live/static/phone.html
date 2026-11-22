@@ -36,6 +36,8 @@
   <label for="name">Camera name</label>
   <input id="name" autocomplete="off" placeholder="e.g. baseline-A-left">
   <p class="mut">Use the same name each time for the same mounting position: the calibration is saved under it.</p>
+  <label><input type="checkbox" id="speak" checked style="width:auto"> Say calls out loud (“Out”)</label>
+  <p id="ended" style="color:#7fd3ff;display:none"></p>
   <div class="row">
     <div><label for="res">Resolution</label>
       <select id="res"><option value="1280x720">1280 × 720</option><option value="1920x1080">1920 × 1080</option><option value="960x540">960 × 540</option></select></div>
@@ -147,7 +149,12 @@ function connect() {
       $("rtt").textContent = m.rtt_ms != null ? m.rtt_ms.toFixed(0) + " ms" : "–";
       $("calib").textContent = m.calibrated ? "calibrated" : "not calibrated";
       $("calib").style.color = m.calibrated ? "var(--ok)" : "var(--warn)";
-    } else if (m.type === "call") { flash(m.text || "OUT"); }
+    } else if (m.type === "call") { flash(m.text || "OUT"); say(m.text); }
+    else if (m.type === "session_end") {
+      // Stop session on the dashboard: stop streaming, don't reconnect.
+      $("stop").onclick();
+      $("ended").textContent = m.reason || "The session was ended from the dashboard."; $("ended").style.display = "block";
+    }
     else if (m.type === "config" && m.detector) {
       detConfig = m.detector;
       if (worker) worker.postMessage({ type: "config", config: detConfig });
@@ -157,6 +164,11 @@ function connect() {
   ws.onerror = () => {};
 }
 
+function say(text) {
+  if (!text || !$("speak").checked || !("speechSynthesis" in window)) return;
+  const u = new SpeechSynthesisUtterance(text.charAt(0) + text.slice(1).toLowerCase());
+  u.rate = 1.05; speechSynthesis.cancel(); speechSynthesis.speak(u);
+}
 function flash(text) { const f = $("flash"); f.textContent = text; f.style.opacity = 1; setTimeout(() => f.style.opacity = 0, 900); }
 
 // Capture time for a frame, on the phone clock (seconds).
@@ -316,6 +328,9 @@ async function keepAwake() {
 document.addEventListener("visibilitychange", () => { if (running && document.visibilityState === "visible") keepAwake(); });
 
 $("start").onclick = async () => {
+  $("ended").style.display = "none";
+  // Browsers only allow speech after a tap: speak nothing now, so later calls are allowed.
+  if ($("speak").checked && "speechSynthesis" in window) speechSynthesis.speak(new SpeechSynthesisUtterance(""));
   $("err").textContent = "";
   const [rw, rh] = $("res").value.split("x").map(Number), fps = Number($("fps").value);
   store.set("bt_name", $("name").value); store.set("bt_res", $("res").value); store.set("bt_fps", String(fps));

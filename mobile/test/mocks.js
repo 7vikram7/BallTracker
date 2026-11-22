@@ -9,6 +9,10 @@ export class MockNative {
     this.exposures = [];
     this.startResult = startResult || { width: 1920, height: 1080, fps: 120, format: 'mock' };
     this.stopped = 0;
+    this.spoken = [];
+  }
+  speak(text) {
+    this.spoken.push(text);
   }
   now() {
     return performance.now() / 1000 + this.clockOffset;
