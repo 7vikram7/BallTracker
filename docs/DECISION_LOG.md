@@ -1168,8 +1168,8 @@ device on the network that crafts its own requests still can: a per-session secr
 dashboard would close that (not built). Test: every POST route without the header, or from
 another origin, is refused and the session keeps running.
 
-**Ball-size check margin (review P1-5).** From committed code (`scripts/ball_size_report.py`, same
-numbers as the cached reports): field 3 counterfactual, largest ratio per camera iPhone 2.26,
+**Ball-size check margin (review P1-5).** From committed code (`scripts/ball_size_report.py`,
+output below): field 3 counterfactual, largest ratio per camera iPhone 2.26,
 Nothing 2.21, Samsung 2.81; smallest margin to the limit 4.3, 5.6 and 2.6 px. With the 2 px slack
 the effective ratio limit at those ball sizes is 3.3-3.7. With the check switched off, the same
 session gives the same reports from every camera (874, 152, 720) and the same 27 calls: on field
@@ -1204,6 +1204,26 @@ fewer (939 / 29, 1 211). Cause not found; `replay_counts.py` prints the environm
   frame-driven server clock stays on the roadmap.
 * Market claims (entry 31, study section 5) now list their sources; the club price, which only an
   aggregator gave, is cut.
+
+**Headline numbers, committed tools at 4c44c4a** (environment line as printed: python 3.12.13
+numpy 2.5.5 scipy 1.18.1 opencv 5.0.0 x86_64 Darwin 25.6.0). The calls are identical (time, text,
+line, p(out)) to the cached-report runs in the table above.
+
+```
+.venv/bin/python scripts/replay_counts.py data/field/20261121-071625 --calibrations data/field/20261121-071625/counterfactual/calibrations.jsonl
+decisions 1212  spoken 27 {'FAULT': 6, 'OUT': 21}  reports {iphone17: 874, nothing: 152, samsung: 720}
+.venv/bin/python scripts/replay_counts.py data/field/20261121-071625
+decisions 940  spoken 30 {'OUT': 27, 'FAULT': 3}  reports {iphone17: 860, nothing: 152, samsung: 0}
+.venv/bin/python scripts/replay_counts.py data/field/20261122-071401 --workers 4
+decisions 1118  spoken 25 {'OUT': 25}  reports {iphone17: 773, nothing: 139, redmi: 0, samsung: 619}
+.venv/bin/python scripts/ball_size_report.py data/field/20261121-071625 --calibrations data/field/20261121-071625/counterfactual/calibrations.jsonl
+camera     band m     n median  p99.5   max  ball px min margin px
+iphone17   14-99    294   0.94   1.97  2.26      3.3           4.3
+nothing     8-14     57   0.85   2.20  2.21      4.0           5.6
+samsung    14-99    218   0.89   1.80  2.81      3.4           2.6   (the smallest margin per camera)
+.venv/bin/python scripts/serve_study.py data/field/20261122-071401
+serve candidates 273, recognised serves 60 (59 IN, 1 UNCERTAIN); at a9fbde6: 272 and 59
+```
 
 **Checked.** Python tests: 133 at e34bc6e, 139 at a9fbde6, 156 now. App tests 18 of 18; `tsc`
 (TypeScript 6.0.3) clean. Android `./gradlew --offline :app:assembleRelease` and iOS `xcodebuild
