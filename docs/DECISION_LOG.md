@@ -1058,6 +1058,43 @@ person logging real calls, chalk marks for the far half. Go/no-go after three su
 
 ---
 
+## 32. Why no service FAULT was called in field test 4 (2026-11-22)
+
+**Request.** Not one service fault was called although serve recognition was built (entry 25).
+Why? (Also: is the evolution log recording the conversation? Yes: every request and Claude's final
+reply to it; very short replies and the work in between are not, the reasoning is in this log.)
+
+**Analysis** (judge replayed on the recorded reports, recording why each candidate was or wasn't a
+serve):
+* 272 bounces could have been serves (between points, 3 s or more after the last ball in play).
+  59 were recognised (62 live). All 59 landed in a service court; 57 of them clearly cross-court,
+  2 within the 1 m allowed of the centre line, so every one was IN. None landed in the kitchen or out.
+* No recognised serve landed in a fault zone, so there was no FAULT to call. In field test 3 the
+  same code path spoke 3 FAULTs as recorded, 6 with the counterfactual calibrations.
+* Long serves were called, but as "OUT": the probable faulty serves at 1520 s, 2433 s and 3370 s
+  weren't recognised as serves, were judged as the first ball of a point, and two cameras called
+  them OUT. Same outcome for the players, wrong word.
+* A serve into the net, the commonest fault, makes no bounce on the other side: nothing to call.
+* **Weakness found: no air drag in the trace back to the server.** A serve is recognised if its
+  arc, traced back from the landing to the server's baseline, was at a plausible height there
+  (-2 to 3 m). The trace ignores drag, and a pickleball loses about half its speed over a court
+  length.
+  * Recognised serves trace to -0.4 m median, below the ground.
+  * 58 candidates were rejected at -2 to -34 m; 47 of them were the first shot after a pause
+    landing in a service court.
+  * With quadratic drag (k = 0.03 per metre), the recognised serves trace to 0.2-1.7 m, a real
+    contact height. 10-20 of the 47 rejected bounces then fall in a plausible range; the others
+    are probably balls hit back to the server between points.
+  * So some slower serves were missed. A wrong-court or kitchen serve among them would have been
+    judged as a rally ball.
+
+**Proposed, not built.** Trace serves back with drag and tighten the height band to about 0-2 m.
+The risk is false FAULTs: a ball hit back to the server between points can look like a serve that
+landed in the wrong court. Check on field tests 3 and 4 (recognised serves, any FAULT spoken
+between points), then against the logged real calls in the next measured session (a FAULT tap).
+
+---
+
 ## Current roadmap (as of 2026-11-22)
 
 **Now (from field test 4, entries 30-31; see STUDY_2026-11-22.md)**

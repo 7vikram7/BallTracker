@@ -1689,3 +1689,53 @@ Session details are in decision log entry 30 (device names only, no people's nam
 ## 2026-11-22 13:50 · request (session 1661f7c3)
 
 > During the last, I think, 10 to 15 minutes of the recording, the server almost went silent. It didn't record any outs, even though there were some. I don't know what happened, but if the server was overwhelmed, there should also be a refresh button. The function of the refresh button should be such that it retains the cameras, the calibrations, the connections, but it just discards the pipeline if it is getting overwhelmed. I think you can build this functionality if necessary, if you think the server got overwhelmed, because something certainly went wrong in the last 10 to 15 minutes. Also, I agree that the README moved a little after calibration. But eventually it got stable. I also recalibrated it when it got stable, but the server decided to ignore it. Why? If the device is going to be useless, I'll stop using it going ahead. Also, I understand that the mounts I use for the phones are not firm, so the phones eventually end up moving a little after mounting, but I noticed that today you try to recalibrate and snap, whenever you notice that the cameras moved. Also, based on the sessions so far, I think you have a good amount of data, 3 to 4 sessions. Are we moving ahead well? Are there substantial improvements? Is this project worth building? I think going ahead at least four cameras is a must for something to come out of the session. And that too, 4 good cameras. Because so far it is all just gathering of test data. We have not used it with any kind of utility. In terms of calling the play. Can you study, make a comprehensive study and make some recommendations going ahead if this project is worth pursuing?
+
+### 2026-11-22 13:56 · outcome
+
+The server wasn't overwhelmed. The Samsung started missing bounces near the end, and its silence blocked OUTs the iPhone saw. So I didn't build the refresh button. The full study is in [docs/STUDY_2026-11-22.md](docs/STUDY_2026-11-22.md) (pushed, `12c0a8b`), with a summary in decision log entry 31.
+
+## What happened in the last 10–15 minutes
+- **The server and Mac were fine.** The Mac was at most 51% busy and no frames were lost. Bounces, decisions and OUTs came at the same rate as earlier: 8 OUTs went out in the last 15 minutes, 0.53 a minute against 0.55 before.
+- **The Samsung slipped.** From minute 54 it caught only 53% of the bounces the iPhone saw during rallies, against 62–80% earlier. When the iPhone alone saw an OUT, the server checks whether another good camera that could see the spot also saw a bounce there. The Samsung often hadn't, and its silence blocked the call.
+  - 7 of the session's 13 blocked OUTs came in the last 7 minutes; in 5 of them the Samsung blocked the iPhone.
+  - Likely causes: the low morning sun on its end, its calibration slowly worsening, and a battery at 32%.
+- **A refresh button wouldn't have helped**, because the problem was a camera, not the server.
+- **One gap I can't rule out:** the logs can't show whether the Mac's dashboard actually said those 8 calls out loud. From the next session every phone says them too.
+- **The other silent "OUTs" were correct.** The 31 bounces that two cameras placed outside but the server stayed quiet on were players bouncing the ball before serving.
+
+## Why the Redmi recalibration was ignored
+- Your recalibration at about 39 minutes used only 5 points and fitted at 3.6 px. Anything rougher than 3 px isn't used for calls.
+- Your later snap at about 41½ minutes fitted well, but Calibrate was never pressed to confirm it.
+- **It doesn't matter much: the Redmi reported 0 bounces in 33 minutes.** That includes 5 minutes on a good 1.0 px calibration. It ran at 19 fps and saw a possible ball in only 1–4% of frames. Stop using it.
+
+## How the automatic recalibration works
+Every 10 seconds the server compares each camera's picture with its calibration picture and corrects the calibration if the phone has tilted or turned. Today it did this 43 times. It can't follow big jumps, like the Redmi's 80–220 px, or a phone that slides on its mount. Firm mounts fix that at the source.
+
+## Are we improving? Is it worth building?
+- **The engineering has improved a lot:**
+  - from 19,000 lost frames and 9 px calibrations (19 Nov) to none lost and 0.1–2.3 px kept up to date automatically;
+  - dead balls are no longer called;
+  - calls are faster.
+- **Accuracy has never been measured on a full court.** Without knowing the real calls, nobody can say how many of today's 25 OUTs were right or how many were missed. That's the "just gathering test data" feeling, and you're right about it.
+- **You're right about four good cameras.** A camera is accurate when it's close: about 4–10 cm on its own half, 30–50 cm from the far end. Every line needs a good camera within about 8 m, which means the four corners. Good cameras also catch only 55–85% of bounces, so a second confirming camera is needed often.
+- **What already exists:** PlayReplay and Owl AI call lines on the pro tours in 2026 ([PPA/MLP](https://thekitchenpickle.com/blogs/news/pickleball-automated-line-calls-ppa-tour-major-league-pickleball/), [Owl AI at MLP](https://www.sportsvideo.org/2026/05/26/owl-ai-and-major-league-pickleball-launch-ai-officiating-system-using-broadcast-cameras/)).
+  - PlayReplay reportedly costs clubs $3.5–4.5k per court per year ([unconfirmed](https://www.pulse.bot/ai/deals/playreplay-raises-12m-to-expand-electronic-linecalling-tech-66e79cac-c42c-4c9a-8ee5-292e6499727e/)).
+  - [SwingVision](https://www.tennis.com/news/articles/fair-play-swingvision-puts-its-electronic-line-calling-to-the-test-in-tournament-play) does it from one iPhone, claiming 97% within 10 cm for tennis.
+  - A phone setup that takes 20–30 minutes won't beat those on convenience. The opening left is a low-cost permanent installation at one club, or line calls as the first layer of the player stats and coaching in your original plan.
+
+**My recommendation: continue, but make the next sessions measurements:**
+1. Four good cameras at the corners (iPhone 17, Samsung, iPhone 16, and one more good phone such as a used iPhone 12 or later), on firm, marked mounts, with battery packs.
+2. A person taps the real call at each point, plus 10 chalk-marked bounces near the far lines.
+3. After three such sessions, decide using the targets in the study:
+   - clear OUTs: 90% or more called;
+   - wrong OUTs: at most 1 an hour;
+   - calls under 1 second;
+   - setup under 10 minutes.
+   - **If met:** a fixed installation.
+   - **If not:** use the same system for after-match review instead of live calls.
+
+Next step: I'll build the call-tapping page for step 2 if you want it. It's a web page, so nothing to install on the phones.
+
+## 2026-11-22 14:10 · request (session 1661f7c3)
+
+> I hope even all of our conversation is recorded in the conversation log for the other agent to be able to understand our motivations and analyze our reasoning. I hope the hook is working well. One more thing I want you to analyze is not even one service fault was called, even though we built it. Why did that happen?
