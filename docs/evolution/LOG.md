@@ -1739,3 +1739,33 @@ Next step: I'll build the call-tapping page for step 2 if you want it. It's a we
 ## 2026-11-22 14:10 · request (session 1661f7c3)
 
 > I hope even all of our conversation is recorded in the conversation log for the other agent to be able to understand our motivations and analyze our reasoning. I hope the hook is working well. One more thing I want you to analyze is not even one service fault was called, even though we built it. Why did that happen?
+
+### 2026-11-22 14:14 · outcome
+
+**Conversation log:** the hook is working. `docs/evolution/LOG.md` has every request of yours today and my final reply to each, and it's pushed with each commit. It skips very short messages like "ok", and it doesn't capture my working between your message and my reply. The reasoning behind decisions goes in the decision log, which I keep up to date for the other agent; today's are entries 30–32.
+
+## Why no service FAULT was called
+
+**Mainly because no serve the server recognised landed in a fault zone.** I replayed the session with a record of every serve decision:
+- 272 bounces could have been serves, meaning they came between points, 3 s or more after the last shot.
+- 59 were recognised as serves (62 live). **Every one landed in the correct service court**, so each was IN. None landed in the kitchen, the wrong court, or out.
+- The FAULT logic does work: on the earlier session's recording it calls 3 FAULTs.
+
+**Long serves were called, but as "OUT" instead of "FAULT".** Three of today's 25 OUTs (at 1520 s, 2433 s and 3370 s) look like faulty serves. They weren't recognised as serves, so they were judged as the first shot of a point, and two cameras called them OUT. The result for the players is the same; only the word is wrong.
+
+**The most common serve fault can't be called.** A serve into the net never bounces on the other side, so there is nothing to see.
+
+**There is a real weakness: some slower serves weren't recognised.**
+- The server recognises a serve by tracing the ball's arc back to the server's baseline and checking it was hit at a believable height. That trace ignores air drag, but a pickleball loses about half its speed over a court length.
+- As a result, even the recognised serves trace back to below the ground on average (−0.4 m), and slower serves trace far enough below it (−2 to −34 m) to be rejected.
+- With drag added, the recognised serves trace back to 0.2–1.7 m, a normal height for an underhand serve.
+- About 10–20 of the rejected bounces then look like real serves. Most of the rest are probably balls hit back to the server between points.
+- A wrong-court or kitchen serve among those 10–20 would have been missed.
+
+**I haven't built the fix.** Adding drag has a risk: a ball hit back to the server between points could then pass as a serve "into the wrong court" and produce a false FAULT. It needs checking on both recorded sessions first, and then against real calls. When you log real calls next session, include a FAULT button, so we can see whether faults are being missed.
+
+The analysis is in decision log entry 32.
+
+## 2026-11-22 16:02 · request (session 1661f7c3)
+
+> Ensure the hooks commits to repo after every updated conversation log
