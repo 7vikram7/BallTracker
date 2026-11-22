@@ -11,7 +11,9 @@ Two halves:
   tests pass again, so nothing untested is ever pushed.
 
 The evolution log (docs/evolution/LOG.md) is written by the hooks themselves after the tests,
-so it is left out of the fingerprint but included in the commit.
+so it is left out of the fingerprint. When the rest of the tree is tested it goes into that
+commit; otherwise it is committed and pushed **on its own** at the end of every response, so the
+log on GitHub is always up to date while untested code still waits for a passing run.
 
 Safety: never commits during a merge/rebase, never commits files that look like credentials
 or are larger than 5 MB, pushes only the current branch to its upstream. Off with
@@ -99,19 +101,43 @@ def _unsafe(paths: list[str]) -> list[str]:
     return bad
 
 
+def _push() -> str | None:
+    """-> None when pushed, else why not."""
+    branch = _git("rev-parse", "--abbrev-ref", "HEAD")
+    if not _git("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}", check=False):
+        return f"not pushed: {branch} has no upstream"
+    r = subprocess.run(["git", "push", "-q"], cwd=ROOT, capture_output=True, text=True, timeout=90)
+    return None if r.returncode == 0 else f"push failed: {r.stderr.strip()[-300:]}"
+
+
+def commit_log_only(data: dict) -> str | None:
+    """Commit and push just the evolution log (the rest of the tree is untested or unchanged)."""
+    changed = [p for p in UNFINGERPRINTED if _git("status", "--porcelain", "--", p)]
+    if not changed:
+        return None
+    bad = _unsafe(changed)
+    if bad:
+        return "Evolution log not committed, review: " + "; ".join(bad)
+    subject = _last_request(data.get("transcript_path") or "") or "update"
+    # `git commit -- <paths>` commits only those paths and leaves anything else staged as it was
+    _git("commit", "-q", "-m", f"Evolution log: {subject}"[:80],
+         "-m", f"Written by the Claude Code hooks (scripts/hooks/evolution_log.py).\n\n{TRAILER}\n", "--", *changed)
+    sha = _git("rev-parse", "--short", "HEAD")
+    why = _push()
+    return f"Evolution log committed {sha}" + (f"; {why}." if why else " and pushed.")
+
+
 def stop(data: dict) -> str | None:
     """-> message for the user, or None when there was nothing to do."""
-    if not MARKER.exists():
-        return None
     gitdir = Path(_git("rev-parse", "--git-dir"))
     gitdir = gitdir if gitdir.is_absolute() else ROOT / gitdir
     if any((gitdir / n).exists() for n in ("MERGE_HEAD", "rebase-merge", "rebase-apply", "CHERRY_PICK_HEAD")):
         return None
-    tested = json.loads(MARKER.read_text())
     if not _git("status", "--porcelain"):
         return None  # nothing to commit
-    if fingerprint() != tested["tree"]:
-        return None  # changed since the last passing run: wait for the next one
+    tested = json.loads(MARKER.read_text()) if MARKER.exists() else None
+    if not tested or fingerprint() != tested["tree"]:
+        return commit_log_only(data)  # code untested since it changed: only the log goes out
     _git("add", "-A")
     staged = [p for p in _git("diff", "--cached", "--name-only").splitlines() if p]
     bad = _unsafe(staged)
@@ -124,13 +150,10 @@ def stop(data: dict) -> str | None:
             + "\n".join(stat[-25:]) + f"\n\n{TRAILER}\n")
     _git("commit", "-q", "-m", f"Auto: {subject}", "-m", body)
     sha = _git("rev-parse", "--short", "HEAD")
-    branch = _git("rev-parse", "--abbrev-ref", "HEAD")
-    if not _git("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}", check=False):
-        return f"Committed {sha} ({len(staged)} files); not pushed: {branch} has no upstream."
-    r = subprocess.run(["git", "push", "-q"], cwd=ROOT, capture_output=True, text=True, timeout=90)
-    if r.returncode != 0:
-        return f"Committed {sha}; push failed: {r.stderr.strip()[-300:]}"
-    return f"Tests passed: committed {sha} ({len(staged)} files) and pushed {branch}."
+    why = _push()
+    if why:
+        return f"Committed {sha} ({len(staged)} files); {why}."
+    return f"Tests passed: committed {sha} ({len(staged)} files) and pushed."
 
 
 def main() -> None:
