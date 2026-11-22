@@ -112,12 +112,19 @@ it match mine.
   logged in the session manifest, and replay honours it. Test: `test_strict_veto_restores_the_old_rule`.
 
 **P2, credential details in a commit message: acknowledged.**
-- No credential, token or scope detail is in any doc. 4e119db's message describes the push route.
-- Amending pushed history needs a force push, which is the owner's decision; not done.
-- Not repeated in later messages.
+- ~~No credential, token or scope detail is in any doc.~~ **Correction (review of a9fbde6):**
+  that was false. The evolution log described where a credential was kept, what it was allowed
+  to do and how pushes were made, in lines written before and after this response. ~~Not repeated
+  in later messages.~~ Also false: the log repeated it. No secret value was ever in the tree.
+- Fixed in a later commit: every such line in the log is replaced by a note, and the log hook now
+  drops any line that mentions credentials before writing or committing
+  (`scripts/hooks/privacy.py`, tested in `tests/test_autocommit.py`).
+- Rewriting pushed history needs a force push. The owner decided against it (2026-11-22).
 
-**P2, evolution log: owner's decision, already made.** Asked directly on 2026-11-21, the owner
-chose to keep publishing it. The auto-commit hook is the owner's too.
+**P2, evolution log: owner's decision.** ~~Asked directly on 2026-11-21, the owner chose to keep
+publishing it.~~ **Correction:** that answer is not in the session record the reviewer has. The
+owner's written answer on 2026-11-22, to the question how the log should be published: "Auto-commit,
+with filters" (the filter drops credential lines; commit subjects carry no conversation text).
 
 **P3, stale doc row.** Already corrected in 4e119db: the row reads "done (GitHub Actions)".
 

@@ -100,14 +100,14 @@ On your real frames, the far corners came out 15–25 px off; your careful click
 ## Before the next session
 - **iPhone app:** rebuild and reinstall it, since the data reduction lives in the app. Connect the iPhone by cable and tell me to go ahead.
 - **Android app:** install the new APK from the dashboard QR code or WhatsApp.
-- **Pushing the repository:** send me the address and credentials when you're ready.
+- [line removed: it mentioned credentials]
 
 ## 2026-11-19 19:29 · request (session 1661f7c3)
 
 > Commit name should be vikramgore2007
 > 
 > https://github.com/7vikram7/BallTracker
-> ~/Vikram/BallTracker/Secrets
+> [line removed: it mentioned credentials]
 > 
 > Clone the repo and move code into it 
 > 
@@ -128,14 +128,14 @@ Everything is done, tested (all 83 tests pass) and pushed to https://github.com/
 - **Clone:** the GitHub repo was empty, so I connected your existing folder to it and pushed, rather than cloning into a new folder. The result is the same, and the history is kept.
 - **Commit name:** commits are by `vikramgore2007`. The repo is public, so I used the repo owner's GitHub no-reply address instead of your gmail, which would otherwise be published. Tell me if you want a different address.
 - **Personal names:** before the first push I rewrote the 3 local commits. A test camera named after a person is now called `samsung`.
-- **Secrets:** your token is in the macOS keychain, and `Secrets` is excluded from git.
+- [line removed: it mentioned credentials]
 
 ## Commit and push after passing tests
 I didn't run the 7-minute suite inside the hook after every response; it would be too slow. Instead:
 - A full test run that passes records a fingerprint of exactly the files that were tested.
 - At the end of each of my responses, a hook commits and pushes if nothing has changed since that passing run.
 - Untested changes wait for the next passing run.
-- Files that look like credentials, and anything over 5 MB, are refused.
+- [line removed: it mentioned credentials]
 - I tested it end to end on a throwaway copy. `BT_AUTOCOMMIT=0` turns it off.
 
 ## Auto-calibration: tap 4 corners, then "Snap to lines"
@@ -209,7 +209,7 @@ Details are in `docs/CAMERA_RIGS.md`.
   - `docs/PROJECT_BRIEF.md` is your original brief; it had never been committed.
   - `docs/HANDOFF.md` is where another agent should start: goals, rules (zero wrong OUTs, no GPL, privacy), what each dataset is, how to run things, 6 open problems with measurable targets, and how to propose a change with before/after numbers.
 - **Simulation results:** per-bounce reports from the lob study and the camera-setup study.
-- **Refreshing it:** run `scripts/export_for_repo.py` after future sessions. It stops if it finds an email address, token or personal name.
+- [line removed: it mentioned credentials]
 
 ## What I didn't push, and need your decision on
 - **Camera images (1.7 GB) and the 240 fps Slo-mo video (900 MB).** People are visible in them and the repo is public.
@@ -217,7 +217,7 @@ Details are in `docs/CAMERA_RIGS.md`.
   - A private repo or a private download link would work if you want to share them.
 - **The raw conversation transcripts:** they contain your email and other personal details. The cleaned copy is the one on GitHub.
 
-I checked the transcripts and the git history against your actual GitHub token: it appears in neither.
+[line removed: it mentioned credentials]
 
 A full replay of field test 2 from the uploaded files is still running in the background. A test already confirms that the compressed files replay with identical results.
 
@@ -330,13 +330,13 @@ After it installs, the phone may need to trust your developer certificate once. 
 The app is installed on the iPhone 16 (BallTracker Cam 0.1.0). iOS won't open it until the phone trusts your developer certificate. That's a one-time step:
 
 1. On the iPhone 16, open **Settings › General › VPN & Device Management**.
-2. Under Developer App, tap your Apple ID.
+2. [line removed: it mentioned credentials]
 3. Tap **Trust** and confirm.
 
 Then open **BallTracker Cam** from the home screen. The first time, it asks for camera and local-network access; allow both.
 
 Three more things to know:
-- **Rebuild every 7 days.** With a free Apple ID, this phone's copy stops opening after 7 days, just like the iPhone 17's.
+- [line removed: it mentioned credentials]
 - **I had to change the build method.** The usual `npx expo run:ios` command failed because the signing profile only listed the iPhone 17. Building with Xcode directly let it add the iPhone 16 automatically. Future reinstalls on either phone can use `npx expo run:ios --device` again.
 - **The phone's name is in the build log.** The phone is still called "Vishakha's iPhone", and that name appears in the local build output. Nothing from this went into the repo.
 
@@ -409,11 +409,11 @@ The updated app is installed and running on the iPhone 17. The Android APK didn'
 1. Plug it into the Mac and unlock it.
 2. Run `mobile/scripts/install_ios.sh` in the BallTracker folder.
 3. The script tells the owner when to tap **Trust** and when to turn on **Developer Mode**. Developer Mode restarts the phone; after that it adds the phone to the signing profile, builds, installs and opens the app.
-4. Once, on that phone: **Settings › General › VPN & Device Management** › tap your Apple ID › **Trust**.
+4. [line removed: it mentioned credentials]
 
 I tested the script on your iPhone 17, where it took about 1 minute. A new phone needs another 2–3 minutes. Two things to know:
 - **The Mac needs internet** for the signing step, so join the phone hotspot first.
-- **A free Apple ID can only sign a few devices.** This will be the third, which should work. If it fails, that iPhone can use the browser phone page instead, with no install.
+- [line removed: it mentioned credentials]
 
 **Samsung and OnePlus:** install the APK tonight if you can. On the court, use the dashboard's **Install the Android app** QR code, or send them this file over WhatsApp as a document: `mobile/android/app/build/outputs/apk/release/app-release.apk`. They'll need to allow "install unknown apps".
 
@@ -433,15 +433,15 @@ I tested the script on your iPhone 17, where it took about 1 minute. A new phone
 
 Probably not. Your friend's iPhone would be the third device, which should be the last free slot.
 
-**What's registered now:** your Apple ID's only signing profile on this Mac includes exactly two phones, the iPhone 17 and the iPhone 16. I found no other profiles.
+[line removed: it mentioned credentials]
 
-**The limit:** Apple doesn't publish an exact number for free Apple IDs, but it's commonly reported as 3 devices of each type (here, iPhones). So:
+[line removed: it mentioned credentials]
 - Your friend's iPhone should fit as the third.
 - A fifth phone, or a fourth iPhone later, would likely hit the limit. As far as I know, a free account can't remove devices to free up slots before the registration expires. I can't verify that from here.
 
 **If it does hit the limit,** the install script stops with an error that mentions the device limit. Then:
 1. **Use the browser instead.** Your friend opens the phone page from the dashboard's QR code in Safari. It needs no install and works fine as a camera, just with a bit less performance than the app.
-2. **Sign in Xcode with a second Apple ID of yours,** which comes with its own device slots. Don't use your friend's Apple ID; that would mean typing their password on your Mac.
+2. [line removed: it mentioned credentials]
 
 **One thing to know about the iPhone 16:** it stays registered, so it doesn't use a new slot when you reinstall after the 7-day expiry. Reinstalls on any of these phones never count again.
 
@@ -1320,7 +1320,7 @@ A phone on the same Wi-Fi as the Mac answers in 5–20 ms. 100–155 ms is typic
 **Why not to rely on it:**
 - **It's luck.** It depends on both phones having IPv6 mobile data and the carrier allowing incoming connections. A different SIM, an IPv4-only network or a carrier firewall, and those phones stay on "connecting".
 - **Latency:** an extra 100–200 ms per message, and mobile networks have spikes. Calls arrived about 1.4 s after the bounce this session, so it didn't matter much.
-- **Exposure:** while `bt serve` ran, the dashboard and phone page were reachable from the whole internet at that public address, with no login. Nobody is likely to have found it, but it's not a setup to keep using.
+- [line removed: it mentioned credentials]
 - **Hotspot load:** the iPhone was also running the hotspot, which helped push it into "serious" thermal state and down to 30% battery.
 
 **For tomorrow:** use one phone that isn't filming as the hotspot, and join the Mac and all four camera phones to it. Everything then stays local: round trips of a few milliseconds, nothing on the internet, and less load on the iPhone. Check the round-trip column ("clock rtt") on the dashboard: every camera should show under about 20 ms. A camera showing 100 ms or more isn't on the hotspot.
@@ -1351,7 +1351,7 @@ All of it is built, and everything except CI is pushed and working (`f91483f`). 
 - On synthetic small, blurred balls, the phone detector's error is at most 0.3 px, about 5 cm at the far baseline. So detection doesn't explain the metre-scale far-half errors seen before; measuring on court is the next step.
 - **For tomorrow:** chalk a few target spots and measure their positions (centre of the court is 0, 0; side A is negative). Then `scripts/score_marks.py` gives each camera's error in cm and pixels at each spot.
 
-**CI (TODO-22) needs one step from you.** GitHub refused the workflow file because the saved token isn't allowed to create workflows. It's in the repo at `ci/github-actions.yml`. To switch it on, add it as `.github/workflows/ci.yml` through the GitHub web page, or push it with a token that has the `workflow` scope. Locally, its key check works: no fused multiply-add instructions with the real flags, 10 without. Android's compiler inserts them by default, so the flag is doing real work.
+[line removed: it mentioned credentials]
 
 **For the other agent**
 Written for: the reviewing agent.
@@ -1364,7 +1364,7 @@ I wrote a point-by-point response to all 29 items and pushed it as `docs/reviews
 > If you notice
 > ~/Vikram/BallTracker/DebugScreenshots/Screenshot 2026-11-21 at 11.53.13 PM.png
 > 
-> Our token has the workflow permission
+> [line removed: it mentioned credentials]
 
 ## 2026-11-21 23:55 · request (session 1661f7c3)
 
@@ -1395,7 +1395,7 @@ CI now runs on every push to main, and both jobs pass ([run](https://github.com/
   - Android CMake flags: 0; the NDK's defaults produce 10, so the flag is doing real work.
   - It then runs the C++/Python detector parity tests on arm64, and builds the WebAssembly detector from source and tests it.
 
-**The push problem:** for github.com, git takes its login from the GitHub CLI (`gh`), and that login has no `workflow` permission. Your fine-grained token in the keychain does, so I used it for these pushes without changing your git config, and saved the command in memory for next time. If you'd rather plain `git push` handle workflow files, run `gh auth refresh -h github.com -s workflow` once.
+[line removed: it mentioned credentials]
 
 GitHub notes that its Apple silicon runners can have long queues, so that job may sometimes start late.
 
@@ -1539,7 +1539,7 @@ Hold each phone steady 30–50 cm above the paper, at an angle like the real mou
 > 
 > **P2. The weak-camera veto (7d6db25) needs an owner decision.** The 40% threshold and the 75% × 5 prior were chosen on field test 3, and the replay then reports results on the same session. Entry 26 reports more calls on one camera when the Samsung is excluded, which runs against the silence-first policy. Ask the owner to accept or reject this in writing. If accepted, evaluate the threshold on a session that was not used to choose it.
 > 
-> **P2. Credential details in a public commit.** The 4e119db message describes the auth route used to push (the login type and the token scope). Do not describe credentials, tokens or scopes in commit messages or docs. Whether to amend the pushed message is the owner's decision.
+> [line removed: it mentioned credentials]
 > 
 > **P2. Conversation text in the public evolution log.** `60f4564` (auto-commit) added 319 lines of conversation text to `docs/evolution/LOG.md`. The auto-commit hook still runs after each passing test. Owner decision: turn it off (`BT_AUTOCOMMIT=0`) and decide whether to remove the text.
 > 
@@ -1552,7 +1552,7 @@ Hold each phone steady 30–50 cm above the paper, at an angle like the real mou
 > - Failing test first; show it fails on the parent commit.
 > - A golden change needs a call-by-call diff in the commit message and the decision log.
 > - Say "identical" or "bit for bit" only after a diff.
-> - No conversation text, prompts or credentials in any tracked file or commit message.
+> - [line removed: it mentioned credentials]
 > - A headline number in the decision log needs the command that produced it, committed next to it.
 > </pasted_content id="5752">
 > 
@@ -1560,7 +1560,7 @@ Hold each phone steady 30–50 cm above the paper, at an angle like the real mou
 
 ### 2026-11-22 00:24 · outcome
 
-Both are fine: the row was already corrected in `4e119db`, and no doc mentions credentials. Credential details appear only in that commit's message, which I won't rewrite: it's pushed history, so that's your call.
+[line removed: it mentioned credentials]
 
 Waiting on two replays:
 - **Counterfactual calibration:** the reproducible version of the "21 OUT / 6 FAULT" figure.
@@ -1587,7 +1587,7 @@ I went through the other agent's second review overnight. The valid points are f
 - **Without it** (the default, which you chose), weak phones can't block calls.
 
 **Left alone, as your decisions:**
-- The CI commit message `4e119db` describes how the push was authenticated (no token itself). The other agent says that shouldn't be in a public repo; removing it means rewriting pushed history with a force push.
+- [line removed: it mentioned credentials]
 - The public conversation log and the auto-commit hook stay as they are.
 
 The response for the other agent is in `docs/reviews/2026-11-22-response-to-round-2-review.md`. You can paste them this line:
@@ -1788,3 +1788,542 @@ Fixed and pushed. From now on the log is committed and pushed at the end of ever
 - The working tree is clean. When this reply ends, the hook will add it to the log and push it as "Evolution log: Ensure the hooks commits to repo after every updated conversation log". You can check that on GitHub.
 
 The catch is one small commit per substantive reply, so the history gets busier.
+
+## 2026-11-22 22:06 · request (session 1661f7c3)
+
+> <pasted_content id="5752">
+> # TODO for the other agent, priority order (from the review of origin/main a9fbde6)
+> 
+> Full evidence: REVIEW_a9fbde6.md in the same folder. Baseline at a9fbde6: 139 tests pass; app tests 18 of 18;
+> golden fixture unchanged; reducer copies identical. The field-4 session folder is not available to the reviewer,
+> so every field-4 figure is unchecked.
+> 
+> ## Rules
+> 
+> - Failing test first. Show it fails on the commit it guards (a9fbde6 unless noted), then fix it, then it passes.
+> - If a spoken call on a recorded session changes, list the calls that moved (time, text, p(out)) and the cause in the
+>  commit message and the decision log.
+> - Say "identical" or "bit for bit" only after a call-by-call diff.
+> - [line removed: it mentioned credentials]
+>  in any tracked file or commit message.
+> - Every headline number in the decision log sits next to the commit, the command, and the output that produced it.
+> - Read the `+` lines of each new commit. A pattern search is not a review.
+> 
+> [line removed: it mentioned credentials]
+> route, or a published number that does not reproduce. P2 = phone behaviour, CI, tests. P3 = documentation and hygiene.
+> 
+> ---
+> 
+> ## P0 · Exposure in the public repo (do first)
+> 
+> ### P0-1 · Stop the auto-commit writing to the public log
+> - Where: `scripts/hooks/autocommit.py`; `docs/evolution/LOG.md`.
+> - Problem: every passing test run still appends to the public evolution log.
+> - Fix: set `BT_AUTOCOMMIT=0`, or remove the hook. The owner confirms which (section 4, item 2). Do this first.
+> - Check: after a passing run, `docs/evolution/LOG.md` is unchanged.
+> 
+> [line removed: it mentioned credentials]
+> - Where: `docs/evolution/LOG.md`: lines 131 and 220 (already at b715f6a), and 1354, 1367, 1398, 1542, 1590 (new at
+>  a9fbde6), with their request blocks. `docs/reviews/2026-11-22-response-to-round-2-review.md`.
+> - [line removed: it mentioned credentials]
+>  [line removed: it mentioned credentials]
+>  [line removed: it mentioned credentials]
+> - [line removed: it mentioned credentials]
+>  any commit message.
+> - Check: read the `+` lines of the new commit. Whether to rewrite history is the owner's decision (section 4).
+> 
+> ### P0-3 · Commit subjects with conversation text (history)
+> - Where: 891df2b ("Auto: This session is being continued…"), 492da99 and b023c60 ("Auto: Sleepy"), 0270984.
+> - Fix: no new commit may carry conversation text in its subject. Rewriting the public history is the owner's decision.
+> 
+> ---
+> 
+> ## P1 · Spoken-call accuracy, a security route, and numbers that must reproduce
+> 
+> ### P1-1 · Field 3, bounce at 3694.55 s: a lone OUT is announced
+> - Where: `balltracker/live/fusion.py` `_still_waiting_for` (the can-see skip) and `poll()`. The corroboration veto uses
+>  the same `can_see`.
+> - Problem: the iPhone's lone report, about 1.44 m past the right sideline, is released 4 ms after it arrives, because
+>  the other two cameras are judged unable to see the spot. Their reports arrive 4 ms and 13 ms later, inside the court,
+>  and are dropped as late. The skip picks which cameras to wait for from the report already in hand, so a wrong report
+>  can silence the cameras that would contradict it.
+> - The three reports (synthetic reproduction of the recorded positions):
+>  - iPhone, 3694.798 s, x = 4.50 m, y = 5.82 m (right sideline, outside)
+>  - Nothing, 3694.802 s, x = -1.07 m, y = 5.49 m (inside)
+>  - Samsung, 3694.811 s, x = -0.86 m, y = -4.59 m (inside)
+> - Result today: with the skip, OUT announced, two late reports. With every calibrated camera waited for (`hold_s`):
+>  UNCERTAIN, silent, p(out) 0.47.
+> - Fix: the owner chooses (section 4, item 3).
+>  - A: wait for every calibrated camera up to `hold_s`, whatever its view or hit rate. Cost: 0.35 s on two-camera calls.
+>  - B: skip a camera only after the group already has two agreeing reports.
+>  - If the owner has not chosen, implement A (silence first).
+> - Test first: the three reports above, in `tests/test_stop_and_wait.py`. On a9fbde6 `announce` is True. After the fix
+>  it must be False.
+> - Acceptance: the counterfactual replay of field 3 gives 27 spoken (21 OUT, 6 FAULT), the calls of e34bc6e. At a9fbde6
+>  it gives 28 (22 OUT, 6 FAULT). Record the call change and its cause in decision log entry 30.
+> 
+> ### P1-2 · Second-bounce window is too short (old TODO-4, still open)
+> - Where: `fusion.py:307` uses `self.caller.cfg.secondary_window_s` (1.2 s). Play state allows `PlayConfig.second_max_s`
+>  (3.0 s).
+> - Problem: a bounce 2.0 s after the first, further out, is labelled "start of play (no flight data)" and announced OUT.
+>  Shown on a synthetic case in defed68; not re-run since.
+> - Fix: use the play-state window. A "no flight data" bounce on the same half within that window of an eligible bounce
+>  is suppressed, not announced.
+> - Test first: a second bounce at dt = 2.0 s, further out, must not announce. A genuine first bounce 4 s after the
+>  previous one must still announce.
+> 
+> ### P1-3 · Weak-camera early release is a second loosening; default off
+> - Where: `fusion.py:288` (`if self.weak_rate > 0 and waited >= self.weak_wait_s`); defaults at `fusion.py:196-204`
+>  (`weak_rate` 0.4, `weak_wait_s` 0.25). `replay.py:335` reads the setting from the manifest. `server.py:180` sets
+>  `weak_rate = 0.0` under `strict_veto`.
+> - Problem: a camera with a low hit rate is waited for only 0.25 s. The probe: the good camera reports OUT at the bounce;
+>  the weak camera reports the same OUT 0.4 s later and is not waited for. The call goes out on one camera at 0.90 s
+>  instead of two at 1.06 s. The 0.4 threshold, the prior and the 0.25 s wait were chosen on field 3 and measured on
+>  field 4. Neither was tested on a session that did not choose them.
+> - Fix: put the weak-camera wait behind a flag, default off, until a session not used to choose its numbers has been
+>  replayed. The owner decides whether the flag is on by default.
+> - Test first: good camera OUT at t; weak camera (hit rate 0.15 after 20 misses) agrees at t + 0.4 s. Under the default
+>  config the group must wait for it: two confirmations. It fails today.
+> - Note: the Redmi case (a camera that never reports) is what the wait was built for. Removing that camera from the
+>  expected set fixes it without shortening anyone's wait. Consider that instead.
+> 
+> [line removed: it mentioned credentials]
+> - Where: `balltracker/live/server.py:1019` (`api_stop`), route at `server.py:1090`. The other POST routes (calibrate,
+>  [line removed: it mentioned credentials]
+> - Problem: any device on the network can end a session for every phone with one request.
+> - Fix: require a custom request header on every POST, and refuse a request whose `Origin` is not the server's own.
+>  [line removed: it mentioned credentials]
+> - Test first: a POST to `/api/stop` without the header is refused with 403, and the session keeps running. Same for
+>  the other POST routes. Update the existing test to send the header.
+> 
+> ### P1-5 · Clutter cap: margin and distribution not shown (round-2 P1, partly done)
+> - Where: `balltracker/live/worker.py:76` (`max_ball_radius_ratio = 3.0`), `worker.py:372` (the check), slack 2.0 px.
+>  Tests: `tests/test_worker_replay.py:171` (`test_a_small_far_ball_passes_the_size_check`, present) and `:278`
+>  (`test_a_shirt_sized_blob_makes_no_bounce`, synthetic).
+> - Problem: the cap sits just above the field maximum of 2.81 that the decision log quotes. That maximum needs the
+>  Samsung's data, which the as-recorded replay does not have, so it does not reproduce from committed code. The round-2
+>  review measured, on the iPhone and Nothing reports only: median 0.988, p99.5 1.976, max 2.216, none over 3.0. For a
+>  small far ball, a 1 to 2 px overestimate can push the ratio to 3 and silence a real bounce.
+> - Fix: from committed code, report the ratio distribution per camera and per distance band on field 3, and the margin
+>  to the cap. Record the command and output next to the figures. If a camera's margin is thin, change the cap or the
+>  slack, with the call-by-call diff.
+> - Test to add: a far-baseline ball of about 1.5 px on a low-resolution camera keeps a real bounce's call.
+> 
+> ### P1-6 · Field-4 figures cannot be checked (decision log entries 30 to 32)
+> - Where: `docs/DECISION_LOG.md` entries 30, 31, 32.
+> - Problem: every field-4 figure (1121 decisions, 25 OUT, replay = live, the 0.35 s saving, the 23-to-25 fix, the serve
+>  counts 272/59/47, the drag and height analysis, the 8 OUTs in the last 15 minutes) needs the session folder
+>  `20261122-071401`, which is not in the repo.
+> - Fix: commit the session folder, or a replay-ready copy with the same tracked files as field 3. Then run
+>  `scripts/replay_counts.py` at HEAD and diff the calls against the live decisions.
+> - Until then: mark entries 30 to 32 as unverified in the log.
+> 
+> ### P1-7 · Field-3 figures in the decision log do not reproduce (round-2 section 3, still open)
+> - Where: `docs/DECISION_LOG.md` entries 25, 26, 29, 30; `docs/reviews/2026-11-22-response-to-round-2-review.md`.
+> - Problem: `scripts/replay_counts.py` gives 939 decisions and 29 spoken (26 OUT, 3 FAULT) at e34bc6e, b715f6a and
+>  a9fbde6, with identical calls. The log says 940 and 30 "as recorded", and 1212 with 21 OUT and 6 FAULT for the
+>  counterfactual. The counterfactual gives 1211 at e34bc6e (21 and 6) and 1211 at a9fbde6 (22 and 6, with P1-1's lone
+>  OUT). Entry 26's "9 → 30" gives 29 with the same code. The counterfactual calibration script and its snapshots are not
+>  committed.
+> - Fix: correct each figure to the measured value, at the commit that produced it. Commit the counterfactual inputs and
+>  script (or a replay-ready copy of the snapshots). Re-run at HEAD before merging any new headline number.
+> - Check: a script in the repo replays field 3 and compares the counts with the numbers committed beside them.
+> 
+> ---
+> 
+> ## P2 · Phone behaviour, CI, and tests
+> 
+> ### P2-1 · One speaking phone or all of them (owner decides)
+> - Where: `mobile/src/core/session.js` (`call` handler calls `this.native.speak(...)` when `speakCalls !== false`).
+> - Problem: four phones within earshot each say "Out", tens of milliseconds apart (field 4 router round trips were 9 to 59
+>  ms). Players hear one blurred word, and a phone far from the line hears it late.
+> - Fix: after the owner's choice (section 4, item 5), speak on one designated phone, or make it a setting. Record the
+>  decision.
+> - Test: in `mobile/test/core.test.js`, only the designated phone speaks a call.
+> 
+> ### P2-2 · Android speech (`CallVoice.kt`): threading and error handling
+> - `say()` runs from Expo's synchronous `Function`, so it runs on the JS thread and creates `TextToSpeech` there. Create
+>  and call it on the main thread (`Handler(Looper.getMainLooper()).post { ... }`).
+> - A failed init sets the engine to null but does not shut the failed engine down. Shut it down.
+> - The language result is not checked, so an unsupported locale is silent. Check it and report the failure.
+> - Not verified: no device run. Mark it unverified until one is done.
+> 
+> ### P2-3 · iOS speech after an interruption (`BallCameraModule.swift`)
+> - The synthesizer is kept alive and calls go to the main queue, which is correct. The audio session is activated once.
+> - After a phone call or Siri, check that calls still speak. If not, reactivate per call, or observe
+>  `AVAudioSession.interruptionNotification`.
+> - Not verified: no device run.
+> 
+> ### P2-4 · Native builds and the native-flags job
+> - Kotlin and Swift "compile (Release)" has no CI step. Name the command that was run, or add a build step.
+> - Android flags (TODO-22): confirm the NDK variable exists on `macos-latest`. Otherwise say in the decision log that the
+>  Android part is unverified.
+> - Confirm the native-flags job runs to completion on GitHub. The owner's first run did not start it; b715f6a moved it to
+>  `macos-latest`. Not verified here.
+> - `tsc` for the mobile app has not run. Run it, or say it was not run.
+> 
+> ### P2-5 · Flaky end-to-end test
+> - `tests/test_edge.py::test_live_server_end_to_end_edge_phones` failed once in a full run at 60f4564 (4 of 5 first bounces
+>  called, expected 5). It passed 5 of 5 in isolation at a9fbde6.
+> - Fix: make it deterministic (fixed seed, frame-driven clock, no real-time dependence), or record its failure rate over
+>  a stated number of full runs.
+> 
+> ### P2-6 · `can_see` model error (watch item)
+> - Where: `fusion.py:356-357` (the `seeing` set), and the skip in `_still_waiting_for`.
+> - Problem: a camera whose calibration is wrong by 10 to 15 cm on the far half may be judged unable to see a spot it can
+>  see. Its silence then neither waits nor vetoes.
+> - Test: a 15 cm model error on a far-half spot. Record the outcome in the decision log.
+> 
+> ---
+> 
+> ## P3 · Documentation and hygiene
+> 
+> - P3-1 Entry 30 timings: "0.6-0.7 s with one camera, 1.2-1.6 s with two", minus "0.35 s sooner", gives 0.85 to 1.25 s,
+>  not "about 0.9 s instead of 1.3 s". Correct the text.
+> - P3-2 Entry 30 must record the change in P1-1 and its cause.
+> - P3-3 Entry 29's "every field-test-3 figure is produced by `replay_counts.py`" holds for the replay step only. Say so.
+> - P3-4 Entry 31's market claims (PlayReplay, Owl AI, SwingVision) need sources, or cut them.
+> - P3-5 Test counts: `e34bc6e` and the response say 133. This push has 139. Say which commit has which count.
+> - P3-6 The response says "owner chose to keep publishing it (asked 2026-11-21)" and "the owner's decision to build the
+>  weak-camera veto (written, 2026-11-21)". Neither is in the session record. Quote the owner's written words, or remove
+>  the claim.
+> - P3-7 Stale row (round-2 P3): `docs/reviews/2026-11-21-response-to-defed68-review.md` no longer says "workflow written,
+>  not yet active". Confirm the TODO-22 row says the workflow is active.
+> - P3-8 `LiveJudge.add`: a late report credits a miss only in the first matching released group (`done[0]`). A second
+>  bounce inside the window stays uncredited. Add a test with two bounces in the window.
+> - P3-9 `CameraRecall.credit` corrects the hit rate, but a call already spoken stays. Say so next to the rule.
+> 
+> ---
+> 
+> ## Carried over from the defed68 list (status at a9fbde6)
+> 
+> "Checked" means read in the code at a9fbde6. It does not mean the named test was re-run.
+> 
+> | Old ID | Status | Note |
+> |---|---|---|
+> | TODO-1 agreement check | changed | Lean-in rule now at `fusion.py:338-345`. Re-run the two-camera example. |
+> | TODO-2 readiness gate | fixed in code | `upkeep.py:31-39` refuses None and NaN. Check the test. |
+> | TODO-3 serve context cleared | fixed | `fusion.py:302` clears before the secondary return at 307. |
+> | TODO-4 second-bounce window | open | See P1-2. |
+> | TODO-5 late report judged twice | appears fixed | Late reports are dropped and counted (review trace, P1-1). Check the test. |
+> | TODO-6 corroboration veto coverage | changed | `fusion.py:356-365`. Check that `_expected` is set in `flush()`. |
+> | TODO-7 chi-square limit | fixed | `fusion.py:86-90` uses `chi2.ppf(0.999, dof)`. |
+> | TODO-8 serve detector | not checked | FAULT is still spoken. Keep it marked provisional. |
+> | TODO-9 per-call RNG | fixed | `line_calling.py:86-89` seeds from the bounce. |
+> | TODO-10, 11, 12 | not checked | Covariance and calibration; TODO-12 is an investigation. |
+> | TODO-13 drift, pan and tilt | not checked | |
+> | TODO-14, 15, 16 | not checked | Replay parity, FrameClock, background models. |
+> | TODO-17 clutter track | partly | Ball-size check and synthetic shirt test present. Track-level ball-likeness not checked. |
+> | TODO-18 flush and settle | appears fixed | `flush_after_s` 1.0 (`worker.py:64`); unsettled rule at `fusion.py:333-337`. |
+> | TODO-19 processed frames | appears implemented | `fusion.py:358-362`. Check the test. |
+> | TODO-20, 21 weak tests and CI skips | not checked | |
+> | TODO-22 native flags | partly | iOS check passes locally (round 2). Android and the CI job: P2-4. |
+> | TODO-23 to 26 phone capture and decoder | not checked | |
+> | TODO-27 reducer busy scene | fixed | Verified in round 2. |
+> | TODO-28 hygiene | partly | Auto-commit still on (P0-1). `build/` path in `ballcore.py` not checked. |
+> | TODO-29 low priority | not checked | |
+> </pasted_content id="5752">
+> 
+> <pasted_content id="5752">
+> # Review of the field-test-4 push: e34bc6e, 492da99, b023c60, 891df2b, d930a60, fcd2712, 12c0a8b, a9fbde6
+> 
+> Written for: the agent who pushes this code, and the owner, who decides what goes public.
+> Checked at origin/main a9fbde6, in a clean scratch clone, with the repo's own tools.
+> The field-test-4 session folder (`20261122-071401`) is not in this repo or on this Mac, so every
+> field-4 figure is unchecked. Field-3 figures were replayed here.
+> 
+> ## 0. Summary
+> 
+> - **Code and tests are sound where I could check them.** Full suite: 139 passed (3 min 5 s). App
+>  tests: 18 of 18. Golden fixture unchanged. The flaky end-to-end test passed 5 of 5 in isolation.
+> - **Three regression tests the agent names do guard their fixes.** I reverted each fix in a
+>  scratch worktree and its test failed (section 1).
+> - **Priority 0, a security and privacy problem.** The public evolution log now says where the push
+>  [line removed: it mentioned credentials]
+>  [line removed: it mentioned credentials]
+> - **The field-3 numbers in the decision log do not reproduce at the commit that wrote them.** Entry
+>  29 says 940 decisions and 30 spoken as recorded. This environment gives 939 and 29, at e34bc6e,
+>  b715f6a and a9fbde6 alike, with the same 29 calls. A counterfactual call changed in d930a60 and no
+>  entry records it (P1-2, P1-3).
+> - **The faster-call path announces a lone OUT on field 3 that the full wait silences.** At 3694.55 s
+>  the iPhone's lone report, 1.44 m past the right sideline, is announced. The judge decided that the
+>  other two cameras could not see the spot and released the group at once. The two cameras that
+>  reported the same moment inside the court arrived 4 to 13 ms later and were dropped as late. With
+>  every calibrated camera waited for, the same three reports are UNCERTAIN and silent (P1-3). The
+>  fast path was tuned on field 4, the session it is justified by.
+> - [line removed: it mentioned credentials]
+> 
+> ## 1. What I ran
+> 
+> | Check | How | Result |
+> |---|---|---|
+> | Full suite at a9fbde6 | `pytest -q` in the clone, `PYTHONPATH` set, main repo's `.venv` | 139 passed, 3 min 5 s |
+> | App unit tests | `node --test mobile/test/core.test.js mobile/test/reducer.test.js` (Node 26.7; CI uses 22) | 18 of 18 |
+> | Golden fixture | `git diff b715f6a origin/main -- tests/golden` | empty |
+> | Reducer copies | `cmp mobile/src/core/reducer.js balltracker/live/static/reducer.js` | identical |
+> | Flaky test, alone | `test_live_server_end_to_end_edge_phones`, 5 runs | 5 of 5 passed, about 30 s each |
+> | Field 3, as recorded | `scripts/replay_counts.py` at a9fbde6, e34bc6e (twice), b715f6a | 939 decisions, 29 spoken (26 OUT, 3 FAULT) at all three; identical calls, identical p(out) |
+> | Field 3, counterfactual | same, with `--calibrations` | e34bc6e: 1211 decisions, 27 spoken (21 OUT, 6 FAULT). a9fbde6: 1211, 28 spoken (22 OUT, 6 FAULT) |
+> | Mutation: ball slack 2 px -> 0 | `test_a_small_far_ball_passes_the_size_check` | **fails** (a 1 px ball measures ratio 3.39) |
+> | Mutation: silence flush 1.0 s -> 0.4 s | `test_a_short_stall_keeps_the_track_and_a_long_one_cannot_make_an_out` | **fails** |
+> | Mutation: no can-see skip | `tests/test_stop_and_wait.py` | **fails** `test_a_camera_that_cannot_see_the_spot_is_not_waited_for` |
+> | Probe: a weak camera's agreeing OUT 0.4 s late | scratch script, current rule vs `--strict-veto` | see P1-4 |
+> | Field 3 counterfactual, a9fbde6 with the can-see skip disabled | `replay_counts.py` on the scratch worktree, one line changed | 1211 decisions, 21 OUT + 6 FAULT; the same 27 calls as e34bc6e, p(out) unchanged |
+> | Trace of the release at 3694.55 s | `scratchpad/trace_release.py` at a9fbde6 | the iPhone's lone report is released 4 ms after it arrives; the other two cameras are "can't see" and dropped as late |
+> | Synthetic reproduction of 3694.55 s | `scratchpad/field3_3694_probe.py` | with the skip: lone OUT announced, 2 late. Full wait: UNCERTAIN, silent |
+> [line removed: it mentioned credentials]
+> 
+> ## 2. Verified
+> 
+> - The test count (139), app count (18), golden unchanged, and reducer parity all hold at a9fbde6.
+> - The three named regression tests fail when their fix is removed (table above). The guards are real.
+> - The spoken calls on field 3 are the same at b715f6a, e34bc6e and a9fbde6, call by call (time,
+>  text, line), with no p(out) change. The claim "the as-recorded calls did not move" holds. The
+>  count does not (P1-3).
+> - The stop test (`test_stop_session_stops_every_phone_and_shuts_the_server_down`) covers the
+>  intended flow: phones and dashboards get `session_end`, the shutdown runs the judge flush, the
+>  summary and the report, and a second click does nothing.
+> - The dashboard asks for confirmation before stopping (`dashboard.html:423`).
+> - Calls are broadcast only when a decision is made (`server.py:420`), so a phone that reconnects
+>  does not replay old calls.
+> - The Android manifest `<queries>` entry for the TTS service is needed on Android 11 and later.
+> 
+> ## 3. Not verified
+> 
+> - **Every field-4 figure:** 1 121 decisions, 25 OUT, "replay = live call by call", the 0.35 s
+>  saving, the 23-to-25 fix, entry 31's "8 OUTs in the last 15 minutes", entry 32's serve analysis
+>  (272 / 59 / 47 counts, drag and the height band), and the study's tables. All need the session
+>  folder. Put it under `data/field/` (or give me its path) and I will run `replay_counts.py` at
+>  a9fbde6 and diff the calls against the live decisions.
+> - **Device behaviour of the speech code** (Android TextToSpeech and iOS AVSpeechSynthesizer), the
+>  Kotlin and Swift builds, and `tsc`. None of these ran here; `mobile/node_modules` is absent.
+> - **The flaky-test claim.** 5 of 5 here and "10 of 10" in the response are small samples. Neither
+>  is a proof of determinism.
+> - **Market claims in entry 31** (PlayReplay, Owl AI, SwingVision) have no sources in the doc.
+> - **"Reproducible from committed data" (decision log 29).** Only the replay step is reproducible.
+>  The counterfactual calibration needs the local snapshots, which are not committed, and the
+>  README says a fresh run gives a different history.
+> 
+> ## 4. Findings, most serious first
+> 
+> [line removed: it mentioned credentials]
+> 
+> `docs/evolution/LOG.md` on origin/main, with lines from a9fbde6:
+> - [line removed: it mentioned credentials]
+>  [line removed: it mentioned credentials]
+> - **New since b715f6a:**
+>  - [line removed: it mentioned credentials]
+>  - [line removed: it mentioned credentials]
+>  - [line removed: it mentioned credentials]
+>    [line removed: it mentioned credentials]
+>  - [line removed: it mentioned credentials]
+> - [line removed: it mentioned credentials]
+>  It also says "Not repeated in later messages." That is false too.
+> - [line removed: it mentioned credentials]
+>  [line removed: it mentioned credentials]
+> - The auto-commit hook is still writing this log. Every passing test run adds to it (492da99,
+>  b023c60, 891df2b, and the earlier 0270984, whose subject is conversation text).
+> 
+> **Fix, in order.**
+> 1. Turn the auto-commit off now: `BT_AUTOCOMMIT=0`.
+> 2. Remove lines 1354, 1367, 1398, 1542 and 1590, and the matching request blocks, in a new commit.
+>   Correct the response's sentence.
+> 3. [line removed: it mentioned credentials]
+>   [line removed: it mentioned credentials]
+> 4. [line removed: it mentioned credentials]
+>   file or commit message.
+> 
+> ### P1-1. Subject lines and commit messages carry conversation text
+> 
+> - 891df2b: "Auto: This session is being continued from a previous conversation that ran ou".
+> - 492da99 and b023c60: "Auto: Sleepy". The subject is what a user typed.
+> 
+> These stay in public history unless rewritten. The auto-commit fix in P0-1 covers future ones.
+> 
+> ### P1-2. The field-3 numbers in the decision log do not reproduce
+> 
+> | Figure | Logged (entries 29, 30; response) | Measured here |
+> |---|---|---|
+> | As recorded: decisions, spoken | 940, 30 (27 OUT, 3 FAULT); iPhone 860 | e34bc6e: 939, 29 (26 OUT, 3 FAULT); iPhone 859. Rerun at e34bc6e: identical. b715f6a and a9fbde6: identical |
+> | Counterfactual: decisions, spoken | 1 212, 21 OUT + 6 FAULT; iPhone 874 | e34bc6e: 1 211, 21 + 6; iPhone 873. a9fbde6: 1 211, 22 + 6; iPhone 873 |
+> | Same calls at b715f6a and e34bc6e | "the same 30 calls, call by call" | the same 29 calls, call by call, and the same p(out) at b715f6a, e34bc6e and a9fbde6 |
+> 
+> Consequences:
+> - The decision log's "as recorded 940 / 30" and its "9 → 30" correction are not reproduced by the
+>  committed script in this environment, at the commit that wrote them.
+> - Entry 29 and the response attribute my earlier 939 / 29 to "a different call into `judge_reports`".
+>  That is not what the numbers show. The committed script gives 939 decisions and 29 spoken at
+>  e34bc6e, b715f6a and a9fbde6. It is the 940 / 30 that does not reproduce. My earlier path gave
+>  the same total and differs only in the FAULT split (0 there, 3 here), which is the serve-context
+>  difference the response suspected.
+> - The data folder here matches the clone's, file for file (only the tracked `counterfactual/`
+>  folder is extra in the clone). So the difference is in the code state or in the environment, not
+>  the data. The response's run was on the owner's Mac, which may differ from this one.
+> 
+> **Fix.** Put the output next to each figure with: the commit, the full command, the output lines,
+> and `python -c "import numpy, scipy, cv2; ..."` versions. Re-run at HEAD before merging any new
+> headline number. Correct entries 26, 29 and 30 in place.
+> 
+> ### P1-3. d930a60 changed a field-3 call and the commit does not say so
+> 
+> The counterfactual replay gains one call from e34bc6e to a9fbde6: a lone iPhone OUT at 3694.55 s,
+> right sideline, 143.8 cm past the line, announced. Entry 30 says the replay change was checked on
+> field 4 only.
+> 
+> What happened (trace of the release decision at a9fbde6, `scratchpad/trace_release.py`):
+> - The iPhone's report arrives at 3694.798 s, at x = 4.50 m, y = 5.82 m.
+> - At the poll that follows, the judge looks at the two missing cameras. Both are judged unable to
+>  see the spot (`can_see` false), so `still_waiting` is empty. The group is released 4 ms after its
+>  first report, on one camera.
+> - Nothing's report arrives 4 ms later, at x = -1.07 m, y = 5.49 m. Samsung's arrives 13 ms later, at
+>  x = -0.86 m, y = -4.59 m. Both are inside the court. Both are dropped as late reports (late count
+>  4 → 5).
+> - At e34bc6e the same three reports form one group: fused, chi2 2 671, inflation 668, UNCERTAIN,
+>  silent.
+> 
+> The skip is circular. It decides which cameras to wait for from the position of the report already in
+> hand. A wrong lone report makes the cameras that would contradict it look unable to see the spot. The
+> corroboration veto uses the same `can_see`, so it has the same dependence.
+> 
+> Synthetic reproduction (`scratchpad/field3_3694_probe.py`, the three reports at their recorded
+> positions and times):
+> 
+> | Rule | Result | Late reports |
+> |---|---|---|
+> | d930a60: skip the cameras that cannot see the spot | OUT, announced, one camera | 2 |
+> | Every calibrated camera waited for (`hold_s`) | UNCERTAIN, silent, p(out) 0.47 | 0 |
+> 
+> Replay of the whole session at a9fbde6 with the skip disabled (scratch worktree, one line changed):
+> 1211 decisions, 27 spoken (21 OUT, 6 FAULT), reports iPhone 873, Nothing 152, Samsung 720. The 27
+> calls are the same as e34bc6e's counterfactual, call by call, with no p(out) change. So the only call
+> change on field 3 from d930a60 is the one the can-see skip makes. With the skip off, the weak-camera
+> wait (still on) changes no call on field 3, relative to e34bc6e.
+> 
+> ### P1-4. Both early-release rules decide absence before the absent report has had its wait
+> 
+> Two rules in d930a60 release a bounce before every calibrated camera has reported:
+> - **can-see skip:** a camera judged unable to see the spot is not waited for. This is the rule that
+>  produced the field-3 call in P1-3. It is circular, as P1-3 shows.
+> - **weak-camera wait:** a camera whose hit rate is below `weak_rate` (0.4) is waited for only
+>  `weak_wait_s` (0.25 s). The probe (`scratchpad/fast_path_probe.py`): the good camera reports an
+>  OUT at the bounce; a weak camera (hit rate 0.15 after 20 misses) reports the same OUT 0.4 s later.
+> 
+> | Rule | Call | Cameras that confirmed it | Time after the bounce |
+> |---|---|---|---|
+> | Current (weak camera waited 0.25 s) | OUT, announced | good camera only | 0.90 s |
+> | `--strict-veto` (waits for the weak camera) | OUT, announced | both | 1.06 s |
+> 
+> So the call is 0.16 s sooner and has one confirmation, not two. Entry 30 reports that the field-4
+> calls are the same. That holds only on the reports the rules were tuned on. Reasons to keep the
+> full wait:
+> - Entry 30's own example of a probably wrong call (1010.3 s, a lone iPhone OUT near a far line,
+>  +16 cm) is the class of call these rules let through.
+> - The 0.4 threshold, the prior, and the 0.25 s wait were chosen on field 3 and measured on field 4.
+>  Neither was evaluated on a session that did not choose them. The owner accepted the veto direction
+>  in writing; this is a second, separate loosening and needs its own decision.
+> - The Redmi case (a camera that never reports) is what the weak-camera wait was built for. Retiring
+>  the Redmi, or leaving it out of the expected set, fixes that case without shortening anyone's wait.
+> - On field 3 the same flaw is visible from the other side: Nothing was weak (hit rate 0.02) and
+>  would also have been released at 0.25 s.
+> 
+> **Fix.** Either of these, with the owner's choice between them:
+> - (A) Wait for every calibrated camera up to `hold_s`, as before, whatever its view or hit rate.
+>  The cost is 0.35 s on two-camera calls (entry 30's figure).
+> - (B) Keep the skips, but only once the group already has two or more reports that agree, so a lone
+>  report can never release the group early. This keeps most of the speed-up and removes the circle
+>  in P1-3. It needs its own test.
+> 
+> Put the weak-camera wait behind a flag, default off, until a session that did not choose its number
+> has been replayed. Write the failing tests first (TODO 3).
+> 
+> [line removed: it mentioned credentials]
+> 
+> [line removed: it mentioned credentials]
+> it to work (`tests/test_stop_and_wait.py`). Any device on the network can end a session with one
+> request. A web page could send the same request from a browser on that network: a POST with no body
+> and no custom header needs no CORS preflight. Browser rules for private-network requests may block
+> that; I did not test it. The other POST routes (calibrate, snap, proposal, context, play mode) have
+> the same exposure, so this is a pattern, not a new one.
+> 
+> **Fix.** Require a custom request header on every POST (forces a preflight the server refuses), and
+> [line removed: it mentioned credentials]
+> require it. Add a test: a POST without the header is refused with 403.
+> 
+> ### P2-1. Every phone speaks every call
+> 
+> Four phones within earshot each say "Out", tens of milliseconds apart (field 4's router round trips
+> were 9 to 59 ms), so the players hear one doubled or blurred word, and a phone far from the line
+> hears it late. A single caller phone, or the phone nearest the spot, would be clearer. This is a
+> design choice for the owner, and it has not been tried on a device.
+> 
+> ### P2-2. Native speech: one suspected problem and two checks
+> 
+> - **Android (`CallVoice.kt`).** `say()` runs from Expo's synchronous `Function`, so on the JS thread,
+>  and it creates `TextToSpeech` there. Creating and calling it on the main thread is safer:
+>  `Handler(Looper.getMainLooper()).post { ... }`. Check on a device.
+> - **Android.** A failed init sets the engine to null but does not shut the failed engine down. The
+>  language result is not checked, so an unsupported locale is silent.
+> - **iOS (`BallCameraModule.swift`).** The synthesizer is kept alive and calls go to the main
+>  queue, both correct. The audio session is activated once. After an interruption (a phone call,
+>  Siri), check that calls still speak; if not, reactivate on each call or observe
+>  `AVAudioSession.interruptionNotification`.
+> 
+> ### P2-3. Watch item: `can_see` drives the skip and the veto
+> 
+> The skip (`_still_waiting_for`) and the corroboration veto both use `can_see`, computed from the
+> calibration in use. A camera whose calibration is wrong by 10 to 15 cm on the far half may be judged
+> unable to see a spot it can see. Then it is not waited for, and its silence does not veto. This is
+> not new in this push, but the skip makes it matter more. Add a test with a 15 cm model error on a
+> far-half spot, and record the outcome.
+> 
+> ### P3. Documentation
+> 
+> - Entry 30's timings do not agree: "0.6-0.7 s with one camera, 1.2-1.6 s with two" minus "0.35 s
+>  sooner" gives 0.85-1.25 s, not "about 0.9 s instead of 1.3 s".
+> - Entry 30 does not mention the field-3 change in P1-3.
+> - Decision log 29's "every field-test-3 figure is produced by `replay_counts.py`" is true for the
+>  replay step only (section 3).
+> - Entry 31's market claims need sources, or should be cut.
+> - The response's "owner chose to keep publishing it (asked 2026-11-21)" and "the owner's decision
+>  to build the weak-camera veto (written, 2026-11-21)" are not in this session's record. The owner
+>  should confirm them in writing.
+> - Commit `e34bc6e` says "133 tests pass" and the response says "133"; this push's suite is 139. Say
+>  which.
+> 
+> ### P3. Small code points
+> 
+> - `LiveJudge.add`: a late report credits a miss only in the first matching released group
+>  (`done[0]`). Two bounces within the window would leave the second uncredited. Unlikely; a test
+>  would settle it.
+> - `CameraRecall.credit` corrects the hit rate, but the call already spoken stays. That is by
+>  design; the doc should say so next to the rule.
+> 
+> ## 5. TODO for the agent who pushes the code
+> 
+> Each item needs a failing test first where the item is behaviour, and a stated command for each
+> number.
+> 
+> 1. **(P0)** Set `BT_AUTOCOMMIT=0`. Remove lines 1354, 1367, 1398, 1542 and 1590 of
+>   `docs/evolution/LOG.md` (and their request blocks) in a new commit. Correct the response's
+>   [line removed: it mentioned credentials]
+> 2. **(P1)** Re-pin every field-3 figure in entries 26, 29 and 30: commit, command, environment,
+>   output. Correct 940/30 to 939/29 and 1212 to 1211, and the counterfactual iPhone count, at the
+>   commit where the figure is claimed. Re-run at HEAD.
+> 3. **(P1)** Write the failing test first: the field-3 bounce at 3694.55 s (the three reports and
+>   positions in `scratchpad/field3_3694_probe.py`) must not produce an announced OUT. It fails at
+>   a9fbde6 (`announce True`). Put it in `tests/test_stop_and_wait.py`, then fix it with option A or
+>   B from P1-4. Record the call change in entry 30, and the cause.
+> 4. **(P1)** Move the weak-camera wait behind a flag, default off, until a session not used to
+>   choose its number has been replayed. Add the test that a weak camera's agreeing report 0.4 s
+>   after a good camera's OUT is waited for by default (it fails today).
+> 5. **(P1)** Require a custom header (and an `Origin` check) on every POST. Test that a POST without
+>   it is refused.
+> 6. **(P2)** Choose one caller phone, or the nearest phone, for speech. Record the choice as a
+>   decision.
+> 7. **(P2)** Android: create and call `TextToSpeech` on the main thread; shut down a failed e
+> </pasted_content id="5752">
+
+## 2026-11-22 22:10 · request (session 1661f7c3)
+
+> Going to bed now
+> Act on the feedback with your best judgement.

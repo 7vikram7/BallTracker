@@ -10,6 +10,9 @@ Two halves:
   still has that fingerprint. Anything edited after the tests ran is *not* committed until the
   tests pass again, so nothing untested is ever pushed.
 
+Commit subjects are built from file names, never from conversation text, and the log is run
+through the privacy filter (scripts/hooks/privacy.py) before each commit.
+
 The evolution log (docs/evolution/LOG.md) is written by the hooks themselves after the tests,
 so it is left out of the fingerprint. When the rest of the tree is tested it goes into that
 commit; otherwise it is committed and pushed **on its own** at the end of every response, so the
@@ -63,30 +66,25 @@ def record_pass(n_passed: int) -> None:
                                   "at": time.strftime("%Y-%m-%d %H:%M:%S")}))
 
 
-def _last_request(transcript: str) -> str:
-    """First line of the user's latest real request in this session (for the commit subject)."""
-    try:
-        lines = Path(transcript).read_text(encoding="utf-8", errors="replace").splitlines()
-    except OSError:
-        return ""
-    for line in reversed(lines[-2000:]):
-        try:
-            d = json.loads(line)
-        except ValueError:
-            continue
-        if d.get("type") != "user" or d.get("isCompactSummary") or d.get("isMeta"):
-            continue  # a summary of a compacted conversation or an automatic message, not a request
-        c = (d.get("message") or {}).get("content")
-        if isinstance(c, list):
-            c = "\n".join(x.get("text", "") for x in c if isinstance(x, dict) and x.get("type") == "text")
-        if not isinstance(c, str):
-            continue
-        c = re.sub(r"<[^>]+>.*?</[^>]+>", "", c, flags=re.S).strip()
-        if c.startswith("This session is being continued from a previous conversation"):
-            continue
-        if len(c.split()) >= 4:
-            return c.splitlines()[0][:72]
-    return ""
+def _filter_log() -> None:
+    """Run the whole public log through the privacy filter (personal details, credential lines)."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from privacy import public_text
+
+    for rel in UNFINGERPRINTED:
+        f = ROOT / rel
+        if f.is_file():
+            text = f.read_text(encoding="utf-8")
+            clean = public_text(text)
+            if clean != text:
+                f.write_text(clean, encoding="utf-8")
+
+
+def _subject(paths: list[str]) -> str:
+    """A commit subject from the changed file names only: never conversation text."""
+    names = sorted({Path(p).name for p in paths if p not in UNFINGERPRINTED}) or ["evolution log"]
+    more = f" and {len(names) - 3} more" if len(names) > 3 else ""
+    return "Auto: update " + ", ".join(names[:3]) + more
 
 
 def _unsafe(paths: list[str]) -> list[str]:
@@ -114,15 +112,15 @@ def _push() -> str | None:
 
 def commit_log_only(data: dict) -> str | None:
     """Commit and push just the evolution log (the rest of the tree is untested or unchanged)."""
+    _filter_log()
     changed = [p for p in UNFINGERPRINTED if _git("status", "--porcelain", "--", p)]
     if not changed:
         return None
     bad = _unsafe(changed)
     if bad:
         return "Evolution log not committed, review: " + "; ".join(bad)
-    subject = _last_request(data.get("transcript_path") or "") or "update"
     # `git commit -- <paths>` commits only those paths and leaves anything else staged as it was
-    _git("commit", "-q", "-m", f"Evolution log: {subject}"[:80],
+    _git("commit", "-q", "-m", "Evolution log update",
          "-m", f"Written by the Claude Code hooks (scripts/hooks/evolution_log.py).\n\n{TRAILER}\n", "--", *changed)
     sha = _git("rev-parse", "--short", "HEAD")
     why = _push()
@@ -141,17 +139,17 @@ def stop(data: dict) -> str | None:
     tested = json.loads(MARKER.read_text()) if MARKER.exists() else None
     if dirty <= set(UNFINGERPRINTED) or not tested or fingerprint() != tested["tree"]:
         return commit_log_only(data)  # code untested since it changed: only the log goes out
+    _filter_log()
     _git("add", "-A")
     staged = [p for p in _git("diff", "--cached", "--name-only").splitlines() if p]
     bad = _unsafe(staged)
     if bad:
         _git("reset", "-q")
         return "Auto-commit skipped, review these files: " + "; ".join(bad)
-    subject = _last_request(data.get("transcript_path") or "") or "Update"
     stat = _git("diff", "--cached", "--stat", "--stat-width=100").splitlines()
     body = (f"Auto-commit after a passing full test run ({tested['passed']} passed, {tested['at']}).\n\n"
             + "\n".join(stat[-25:]) + f"\n\n{TRAILER}\n")
-    _git("commit", "-q", "-m", f"Auto: {subject}", "-m", body)
+    _git("commit", "-q", "-m", _subject(staged), "-m", body)
     sha = _git("rev-parse", "--short", "HEAD")
     why = _push()
     if why:

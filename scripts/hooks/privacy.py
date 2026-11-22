@@ -19,6 +19,14 @@ EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 HOME = re.compile(r"/Users/[^/\s\"'`]+/")
 DEVICE_ID = re.compile(r"\b[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\b|\b[0-9]{8}-[0-9A-F]{16}\b")
 TOKEN = re.compile(r"(ghp_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,}|sk-[A-Za-z0-9-]{30,})")
+# A line that talks about credentials (where one is kept, what it may do, how a push was
+# authenticated) is dropped whole: the log is public. Broad on purpose: a dropped harmless line
+# costs little, a kept credential detail can't be taken back.
+CREDENTIAL_LINE = re.compile(
+    r"keychain|credential|\btokens?\b|password|passphrase|oauth|\bPAT\b|fine-grained|gh auth|"
+    r"api[ _-]?key|secret|osxkeychain|credential\.helper|ssh[ -]key|\bscopes?\b|"
+    r"workflow (?:permission|scope)|authenticat|\blogin\b|logged in|signed in|apple id", re.I)
+CREDENTIAL_NOTE = "[line removed: it mentioned credentials]"
 
 
 def private_words() -> list[tuple[str, str]]:
@@ -44,6 +52,22 @@ def scrub(text: str) -> str:
     text = HOME.sub("~/", text)
     text = DEVICE_ID.sub("<device-id>", text)
     return TOKEN.sub("<token>", text)
+
+
+def drop_credential_lines(text: str) -> str:
+    """Replace every line that mentions credentials by a short note (idempotent)."""
+    out = []
+    for ln in text.split("\n"):
+        if CREDENTIAL_LINE.search(ln) and CREDENTIAL_NOTE not in ln:
+            prefix = re.match(r"\s*(?:>\s*)*(?:[-*]\s+|\d+\.\s+)?", ln).group()
+            ln = prefix + CREDENTIAL_NOTE
+        out.append(ln)
+    return "\n".join(out)
+
+
+def public_text(text: str) -> str:
+    """What may go into a public file: personal details scrubbed, credential lines dropped."""
+    return drop_credential_lines(scrub(text))
 
 
 def problems(text: str) -> list[str]:

@@ -93,15 +93,41 @@ def test_main_reports_through_a_system_message(repo, monkeypatch, capsys):
     assert "Evolution log committed" in json.loads(capsys.readouterr().out)["systemMessage"]
 
 
-def test_commit_subject_is_the_users_request_not_a_compaction_summary(repo, tmp_path):
-    mod, work, _ = repo
+def test_commit_subjects_never_carry_conversation_text(repo, tmp_path):
+    mod, work, remote = repo
     t = tmp_path / "t.jsonl"
-    t.write_text("\n".join(json.dumps(x) for x in [
-        {"type": "user", "message": {"content": "Ensure the hooks commit the log after every response"}},
-        {"type": "assistant", "message": {"content": "done"}},
-        {"type": "user", "isCompactSummary": True, "message": {"content": "This session is being continued from a previous conversation that ran out"}},
-    ]) + "\n")
+    t.write_text(json.dumps({"type": "user", "message": {"content": "Sleepy, going to bed now, please fix it"}}) + "\n")
     mod.record_pass(1)  # tested tree, but only the log changed: still a log commit
     _append_log(work)
     assert "Evolution log committed" in mod.stop({"transcript_path": str(t)})
-    assert _run(work, "log", "-1", "--format=%s") == "Evolution log: Ensure the hooks commit the log after every response"
+    assert _run(work, "log", "-1", "--format=%B").splitlines()[0] == "Evolution log update"
+    (work / "code.py").write_text("x = 5\n")
+    mod.record_pass(1)
+    _append_log(work)
+    mod.stop({"transcript_path": str(t)})
+    msg = _run(work, "log", "-1", "--format=%B")
+    assert msg.splitlines()[0] == "Auto: update code.py" and "Sleepy" not in msg
+
+
+def test_the_log_is_filtered_before_it_is_committed(repo):
+    mod, work, remote = repo
+    _append_log(work, "\n> the token in the keychain can push\n\nA normal line about bounces.\n")
+    mod.stop({})
+    pushed = _run(remote, "show", "main:docs/evolution/LOG.md")
+    assert "keychain" not in pushed and "A normal line about bounces." in pushed
+    assert "> [line removed: it mentioned credentials]" in pushed
+
+
+def test_credential_lines_are_dropped_and_the_filter_is_idempotent():
+    import sys
+
+    sys.path.insert(0, str(HOOK.parent))
+    from privacy import drop_credential_lines, public_text
+
+    text = ("Keep this.\n- Your fine-grained token is stored somewhere\n> git takes its login from the CLI\n"
+            "The OAuth scope lacked workflow.\nCalibration RMS 0.8 px.")
+    out = drop_credential_lines(text)
+    assert out.splitlines() == ["Keep this.", "- [line removed: it mentioned credentials]",
+                                "> [line removed: it mentioned credentials]",
+                                "[line removed: it mentioned credentials]", "Calibration RMS 0.8 px."]
+    assert public_text(out) == out

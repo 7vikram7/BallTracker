@@ -8,7 +8,8 @@
 
 Usage (from .claude/settings.json):  python3 scripts/hooks/evolution_log.py prompt|stop
 Reads the hook's JSON input on stdin. Never fails the turn: any error is swallowed.
-Personal details are removed before writing (scripts/hooks/privacy.py): the log is public.
+Personal details and any line about credentials are removed before writing
+(scripts/hooks/privacy.py): the log is public.
 """
 
 from __future__ import annotations
@@ -52,9 +53,9 @@ def _last_assistant_text(transcript: str) -> str | None:
 
 def _append(block: str) -> None:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
-    from privacy import scrub  # names in the gitignored .private_words, e-mails, home paths
+    from privacy import public_text  # names (gitignored .private_words), e-mails, paths, credential lines
 
-    block = scrub(block)
+    block = public_text(block)
     LOG.parent.mkdir(parents=True, exist_ok=True)
     new = not LOG.exists()
     with open(LOG, "a", encoding="utf-8") as f:
