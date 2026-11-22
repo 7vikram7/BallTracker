@@ -1029,11 +1029,44 @@ Android release APK and the iOS Release build compile.
 
 ---
 
+## 31. Why the last minutes went quiet; is the project worth pursuing? (2026-11-22)
+
+**Request.** In the last 10-15 minutes of field test 4 the server seemed silent and missed OUTs:
+was it overwhelmed (then add a pipeline reset button)? Why was the Redmi's recalibration ignored?
+Are we improving, and is the project worth building? Four good cameras seem a must.
+
+**Analysis** (full study: [STUDY_2026-11-22.md](STUDY_2026-11-22.md)).
+* Not overwhelmed: Mac at most 51% busy, no frames deferred or dropped, same bounce and call rates
+  as before (8 OUTs spoken in the last 15 minutes).
+* What changed: from minute 54 the Samsung caught 53% of the iPhone's rally bounces (62-80%
+  before). Its silence vetoed lone OUTs: 7 of the session's 13 vetoed in-rally lone OUTs came in
+  the last 7 minutes, 5 of them iPhone OUTs vetoed by the Samsung. The veto rule is right for one
+  half-reliable second camera; more good cameras are the fix.
+* A reset button wouldn't have helped (the cause was a camera), so it isn't built.
+* The 31 two-camera OUTs that play state silenced were servers bouncing the ball before serving
+  (about 1 m/s, 1.5 s before the serve): correct.
+* Redmi: the recalibration used 5 points at 3.6 px (above the 3 px limit for calls); a later snap
+  was never confirmed. It detected no bounces even with a 1.0 px calibration: retire it.
+* Progress: the engineering is solved session by session (load, clocks, automatic calibration
+  and drift, dead balls). Accuracy has never been measured on a full court.
+* Market: PlayReplay and Owl AI call lines on the pro tours in 2026; SwingVision does it from one
+  iPhone. The niche left is a low-cost permanent installation, or a base for the analytics.
+
+**Decision.** Continue, as measurement sessions: four good cameras at the corners, firm mounts, a
+person logging real calls, chalk marks for the far half. Go/no-go after three such sessions
+(targets in the study): a fixed installation, or post-match review instead of live calls.
+
+---
+
 ## Current roadmap (as of 2026-11-22)
 
-**Now (from field test 4, entry 30)**
+**Now (from field test 4, entries 30-31; see STUDY_2026-11-22.md)**
+* Measure every session: a person taps the real calls (logger to build), plus 10 chalk marks
+  near the far lines. Go/no-go after three measured sessions with four good cameras.
+* Four good cameras at the corners (iPhone 17, Samsung, iPhone 16, one more good phone), firm
+  mounts on marked spots, battery packs.
 * Install the new apps (calls spoken on every phone, Stop session); end sessions with Stop session.
-* Replace the Redmi (or move it close, stable mount); keep the Nothing for its near half only.
+* Retire the Redmi (no bounces even when well calibrated); the Nothing only as a spare.
 * Find which camera is biased on the far half: chalk 10 marks just inside / outside the far
   baseline and sideline, bounce on each, compare (`scripts/score_marks.py`).
 * Why the Samsung gives 7% fewer reports in replay than live.

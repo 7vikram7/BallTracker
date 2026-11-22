@@ -1629,3 +1629,63 @@ Before you start:
 > Detailed analysis
 > 
 > also need implementation that the phones should also call a out altogether. If the server detects a out, there should be a stop session button where the server stops and all the phone apps also stop.
+
+### 2026-11-22 09:35 · outcome
+
+Analysis below, then the two features. Both are built, pushed (`d930a60`, plus a test fix in `fcd2712`) and pass CI; the phones need the new app builds to get them.
+
+## Today's session (61 minutes, 4 phones, router)
+
+**Calls:** 25 OUTs spoken and no FAULTs; all 62 recognised serves landed in. Every two-camera OUT had both cameras saying OUT on their own.
+
+**Setup:** cameras were calibrated at minutes 13 (iPhone), 18 (Samsung), 25 (Nothing) and 34 (Redmi). Only the last 27 minutes had all four.
+
+**Router:** much better than yesterday's mobile data. Round trips were iPhone 9 ms, Samsung 25, Nothing 33, Redmi 59 (yesterday 100–155 ms). The Androids are still above the 20 ms target, but it doesn't affect positions.
+
+**Each phone:**
+
+| Phone | Bounces reported | Notes |
+|---|---|---|
+| iPhone 17 | 775 | Very accurate on its own half; biased on the far half (below) |
+| Samsung | 666 | Accurate near; one 21 s disconnect early on |
+| Nothing | 139 | Catches only 10–14% of bounces on its half, none far away |
+| Redmi | **0** | Ran at 19 fps instead of 30, took 46 ms to process each frame, and its mount kept shifting (25–220 px). Not useful as it is. |
+
+**Accuracy problem: the far half.** On half B, the iPhone (13–17 m away) places bounces 30–50 cm further from itself than the Samsung (close up) does. On half A the gap is only about 10 cm.
+- Two-camera calls are fine, because the call follows the closer camera.
+- A call from the iPhone alone near a far line can be wrong. **The call at 1010 s (right sideline, +16 cm, iPhone only) was probably IN.** The iPhone reads 15–36 cm "more out" than the Samsung on that same line.
+- Which camera is actually biased needs chalk marks. Two cameras that disagree can't settle it.
+
+**Close calls worth remembering if anyone disputed them:**
+- 1371 s: +4 cm
+- 2152 s: +3 cm
+- 3389 s: +5 cm
+
+**Speed:** one-camera calls came 0.6 s after the bounce, two-camera calls 1.3 s. The cause: the server waited 0.6 s for every calibrated camera, including the Redmi, which never reported once.
+
+**Replay didn't match live, now fixed.** Replaying today's recording gave 23 calls instead of 25. Replay judged the whole session with each camera's final calibration, so the Samsung blocked two early calls that live had correctly spoken. Replay now uses the calibration and connections as they were at the time, and reproduces all 25 calls exactly.
+
+## What I built
+
+1. **Every phone says the call out loud.** When the server calls OUT, each app phone says "Out" and flashes it.
+   - iPhones speak even with the silent switch on. Android uses the media volume, so turn it up.
+   - A "Silent" option on the app's start screen turns it off for one phone. Browser phones speak too.
+2. **Stop session button** at the top right of the dashboard, with a confirmation.
+   - Every phone stops its camera, returns to the start screen with a notice, and doesn't keep reconnecting.
+   - The server makes the last calls, saves the summary and `report.md` in the session folder, then exits.
+   - Today's session wasn't closed cleanly and had no summary; the button closes it properly.
+   - Ctrl+C still saves everything, but leaves the phones retrying, which is handy if you just want to restart the server.
+3. **Faster calls.** The server no longer waits for a camera that can't see the spot. It waits only 0.25 s for one that rarely catches bounces there.
+   - On today's recording, the same 25 calls come out about 0.35 s sooner: two-camera calls in about 0.9 s instead of 1.3 s.
+   - `--strict-veto` keeps the full wait.
+
+## Before the next session
+- **Install the new apps.** The APK is at `mobile/android/app/build/outputs/apk/release/app-release.apk`. I can put the new build on the iPhone when it's plugged in by cable.
+- **Redmi:** replace it, or mount it close and firmly.
+- **Chalk test for the far half:** about 10 marks just inside and just outside the far baseline and sideline, one bounce on each, then run `scripts/score_marks.py` to see which camera is biased.
+
+Session details are in decision log entry 30 (device names only, no people's names).
+
+## 2026-11-22 13:50 · request (session 1661f7c3)
+
+> During the last, I think, 10 to 15 minutes of the recording, the server almost went silent. It didn't record any outs, even though there were some. I don't know what happened, but if the server was overwhelmed, there should also be a refresh button. The function of the refresh button should be such that it retains the cameras, the calibrations, the connections, but it just discards the pipeline if it is getting overwhelmed. I think you can build this functionality if necessary, if you think the server got overwhelmed, because something certainly went wrong in the last 10 to 15 minutes. Also, I agree that the README moved a little after calibration. But eventually it got stable. I also recalibrated it when it got stable, but the server decided to ignore it. Why? If the device is going to be useless, I'll stop using it going ahead. Also, I understand that the mounts I use for the phones are not firm, so the phones eventually end up moving a little after mounting, but I noticed that today you try to recalibrate and snap, whenever you notice that the cameras moved. Also, based on the sessions so far, I think you have a good amount of data, 3 to 4 sessions. Are we moving ahead well? Are there substantial improvements? Is this project worth building? I think going ahead at least four cameras is a must for something to come out of the session. And that too, 4 good cameras. Because so far it is all just gathering of test data. We have not used it with any kind of utility. In terms of calling the play. Can you study, make a comprehensive study and make some recommendations going ahead if this project is worth pursuing?
