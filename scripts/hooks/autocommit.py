@@ -74,14 +74,16 @@ def _last_request(transcript: str) -> str:
             d = json.loads(line)
         except ValueError:
             continue
-        if d.get("type") != "user":
-            continue
+        if d.get("type") != "user" or d.get("isCompactSummary") or d.get("isMeta"):
+            continue  # a summary of a compacted conversation or an automatic message, not a request
         c = (d.get("message") or {}).get("content")
         if isinstance(c, list):
             c = "\n".join(x.get("text", "") for x in c if isinstance(x, dict) and x.get("type") == "text")
         if not isinstance(c, str):
             continue
         c = re.sub(r"<[^>]+>.*?</[^>]+>", "", c, flags=re.S).strip()
+        if c.startswith("This session is being continued from a previous conversation"):
+            continue
         if len(c.split()) >= 4:
             return c.splitlines()[0][:72]
     return ""
@@ -135,8 +137,9 @@ def stop(data: dict) -> str | None:
         return None
     if not _git("status", "--porcelain"):
         return None  # nothing to commit
+    dirty = set((_git("diff", "--name-only", "HEAD") + "\n" + _git("ls-files", "--others", "--exclude-standard")).split())
     tested = json.loads(MARKER.read_text()) if MARKER.exists() else None
-    if not tested or fingerprint() != tested["tree"]:
+    if dirty <= set(UNFINGERPRINTED) or not tested or fingerprint() != tested["tree"]:
         return commit_log_only(data)  # code untested since it changed: only the log goes out
     _git("add", "-A")
     staged = [p for p in _git("diff", "--cached", "--name-only").splitlines() if p]

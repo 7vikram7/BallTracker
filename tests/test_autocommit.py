@@ -91,3 +91,17 @@ def test_main_reports_through_a_system_message(repo, monkeypatch, capsys):
     monkeypatch.setattr("sys.stdin", __import__("io").StringIO(json.dumps({"session_id": "x"})))
     mod.main()
     assert "Evolution log committed" in json.loads(capsys.readouterr().out)["systemMessage"]
+
+
+def test_commit_subject_is_the_users_request_not_a_compaction_summary(repo, tmp_path):
+    mod, work, _ = repo
+    t = tmp_path / "t.jsonl"
+    t.write_text("\n".join(json.dumps(x) for x in [
+        {"type": "user", "message": {"content": "Ensure the hooks commit the log after every response"}},
+        {"type": "assistant", "message": {"content": "done"}},
+        {"type": "user", "isCompactSummary": True, "message": {"content": "This session is being continued from a previous conversation that ran out"}},
+    ]) + "\n")
+    mod.record_pass(1)  # tested tree, but only the log changed: still a log commit
+    _append_log(work)
+    assert "Evolution log committed" in mod.stop({"transcript_path": str(t)})
+    assert _run(work, "log", "-1", "--format=%s") == "Evolution log: Ensure the hooks commit the log after every response"
