@@ -1600,3 +1600,25 @@ For tomorrow:
 - Check that every camera's clock round trip ("rtt") on the dashboard is under 20 ms.
 
 Good luck with the session.
+
+## 2026-11-22 07:11 · request (session 1661f7c3)
+
+> starting morning session
+> Give me command for record
+
+### 2026-11-22 07:12 · outcome
+
+Run this on the Mac:
+
+```bash
+cd ~/Vikram/BallTracker && .venv/bin/bt serve --record
+```
+
+- `--record` keeps every frame so the session can be replayed afterwards.
+- For the cautious rule, where any camera that missed a bounce blocks a lone camera's OUT, add `--strict-veto`: `.venv/bin/bt serve --record --strict-veto`
+- The recording goes in `data/sessions/<date-time>/`. Stop the server with Ctrl+C when you're done.
+
+Before you start:
+- Connect the Mac and every phone to the router.
+- Turn off mobile data on the camera phones.
+- On the dashboard, check that each camera's "rtt" (its clock round trip) is under 20 ms.
