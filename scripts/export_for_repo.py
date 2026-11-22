@@ -3,6 +3,8 @@
 
     .venv/bin/python scripts/export_for_repo.py            # write data/field/
     .venv/bin/python scripts/export_for_repo.py --check    # only report what would be written
+    .venv/bin/python scripts/export_for_repo.py --session 20261122-071401   # add or refresh one session,
+                                                            # leaving the rest of data/field/ as it is
 
 Writes data/field/<session>/ for every session that recorded something, WITHOUT camera images
 (no frames.bin / index.csv / previews): court.json, session.json, events.jsonl, calibration/,
@@ -50,9 +52,28 @@ What each session is, and what to do with it: [docs/HANDOFF.md](../../docs/HANDO
 """
 
 
-def export_sessions(dry: bool, secrets: list[str]) -> list[str]:
+def _strip_host_details(text: str) -> str:
+    """host_stats name the busiest other process on the Mac (which apps the owner had open): keep
+    its CPU share, drop the name. Nothing in replay uses it."""
+    import json
+
+    out = []
+    for line in text.splitlines():
+        if '"top_other"' in line:
+            try:
+                d = json.loads(line)
+                if isinstance(d.get("top_other"), dict):
+                    d["top_other"] = {"pct": d["top_other"].get("pct")}
+                    line = json.dumps(d)
+            except ValueError:
+                pass
+        out.append(line)
+    return "\n".join(out) + ("\n" if text.endswith("\n") else "")
+
+
+def export_sessions(dry: bool, secrets: list[str], only: str | None = None) -> list[str]:
     problems, written = [], []
-    for s in sorted(p for p in SESSIONS.iterdir() if p.is_dir()):
+    for s in sorted(p for p in SESSIONS.iterdir() if p.is_dir() and (only is None or p.name == only)):
         ev = s / "events.jsonl"
         n_events = len(ev.read_text().splitlines()) if ev.exists() else 0
         if n_events < 5 and not any((d / "dets.jsonl").exists() for d in s.iterdir() if d.is_dir()):
@@ -68,6 +89,8 @@ def export_sessions(dry: bool, secrets: list[str]) -> list[str]:
             if len(rel.parts) > 1 and top not in KEEP_DIRS and rel.name != "dets.jsonl":
                 continue  # frames.bin, index.csv (camera images) and anything else
             text = scrub(src.read_text(errors="replace"))
+            if rel.name == "events.jsonl":
+                text = _strip_host_details(text)
             out = dst / Path(scrub(str(rel)))
             problems += check(text, str(out.relative_to(ROOT))) + [f"{out}: secret" for x in secrets if x in text]
             data = text.encode()
@@ -88,18 +111,22 @@ def export_sessions(dry: bool, secrets: list[str]) -> list[str]:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--check", action="store_true", help="write nothing, only report")
+    ap.add_argument("--session", help="export only this session; other sessions in data/field/ are kept")
     a = ap.parse_args()
     secrets = []
     sf = ROOT / "Secrets"
     if sf.exists():
         secrets = [x.strip() for x in sf.read_text().splitlines() if len(x.strip()) >= 12]
+    target = OUT_FIELD / a.session if a.session else OUT_FIELD
+    if a.session and not (SESSIONS / a.session).is_dir():
+        sys.exit(f"no session {a.session} in {SESSIONS}")
     if not a.check:
-        shutil.rmtree(OUT_FIELD, ignore_errors=True)
-    problems = export_sessions(a.check, secrets)
+        shutil.rmtree(target, ignore_errors=True)
+    problems = export_sessions(a.check, secrets, a.session)
     if problems:
         print("PRIVACY CHECK FAILED:", *problems[:30], sep="\n  ")
         if not a.check:
-            shutil.rmtree(OUT_FIELD, ignore_errors=True)
+            shutil.rmtree(target, ignore_errors=True)
             print("exported files removed")
         sys.exit(1)
     print("privacy check passed")

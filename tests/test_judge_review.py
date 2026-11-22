@@ -165,3 +165,46 @@ def test_p_out_is_the_same_whatever_was_called_before():
     for k in range(5):
         c2.call(ev(1.0 + k, 0.3 * k, 2.0, sd=0.3))
     assert c2.call(b).p_out == first
+
+
+# --- Review of a9fbde6, P1-2: the first bounce has flight data, the second has none -----------------
+
+def _with_flight(e, v_in, v_out):
+    return e.model_copy(update={"provenance": Provenance(algorithm="test", version="0", params={"physics": {
+        "v_in": list(v_in), "v_out": list(v_out), "rms_in_px": 0.5, "rms_out_px": 0.5}})})
+
+
+def test_a_bounce_without_flight_data_2_s_after_one_with_it_is_a_second_bounce():
+    """The no-flight-data rule required both bounces to lack flight data, so a 2.0 s second bounce
+    further out became "start of play (no flight data)" and was announced OUT."""
+    first = _with_flight(ev(1.0, 1.0, 3.0), (0, 9, -5), (0, 3, 4))  # lands in, rises at 4 m/s
+    j = LiveJudge(COURT, hold_s=0.3)
+    d = run(j, [(first, 1.05), (ev(3.0, 1.2, HL + 0.5), 3.05)])
+    assert d[0].call is not None and d[0].suppressed is None
+    assert d[1].suppressed and not (d[1].call and d[1].call.announce)
+    # a genuine first bounce 4 s later is still called
+    j2 = LiveJudge(COURT, hold_s=0.3)
+    d2 = run(j2, [(first, 1.05), (ev(5.0, 1.2, HL + 0.5), 5.05)])
+    assert d2[1].call.call_text == "OUT"
+
+
+# --- Review of a9fbde6, P2-6: a calibration error moves "can see" only at the edge of the view ------
+
+def test_a_15_cm_calibration_error_changes_can_see_only_near_the_edge_of_the_view():
+    """A camera whose model aims 15 cm off at the court centre (about 30 cm off on the far half) is
+    judged able to see each spot correctly except in a strip along the edge of its view. There its
+    silence may neither wait nor veto (decision log 33)."""
+    from balltracker.live.server import camera_can_see
+
+    true = Camera.look_at(np.array([4.6, -9.5, 2.4]), np.array([-0.5, 0.0, 0.0]), (1920, 1080), 70.0)
+    model = Camera.look_at(np.array([4.6, -9.5, 2.4]), np.array([-0.35, 0.0, 0.0]), (1920, 1080), 70.0)
+    flips, total = 0, 0
+    for x in np.arange(-HW - 1, HW + 1.01, 0.1):
+        for y in np.arange(-HL - 1, HL + 1.01, 0.1):
+            total += 1
+            seen = camera_can_see(true, COURT, x, y)
+            if seen != camera_can_see(model, COURT, x, y):
+                flips += 1
+                assert any(camera_can_see(true, COURT, x + dx, y + dy) != seen
+                           for dx, dy in ((0.4, 0), (-0.4, 0), (0, 0.4), (0, -0.4)))  # within 0.4 m of the edge
+    assert flips / total < 0.01

@@ -926,6 +926,14 @@ changes before the next session.
     Samsung 0 (calibration too rough).
 * Same script at b715f6a: 940 / 30 (27 OUT, 3 FAULT), the same calls one by one. At defed68: 940 / 9.
 * Entry 26's "9 → 30" came from a mixed run; it is corrected there.
+* **Added after the review of a9fbde6 (entry 33):** these figures are from the owner's Mac (Python
+  3.12.13, numpy 2.5.5, scipy 1.18.1, OpenCV 5.0.0, x86_64) and reproduce there at e34bc6e,
+  a9fbde6 and later. The reviewer's environment gives one iPhone report fewer with the same code
+  and data: 939 / 29 as recorded (iPhone 859), 1 211 counterfactual (iPhone 873). The cause is
+  not found; `replay_counts.py` now prints its environment with every count.
+* "Every figure is produced by `replay_counts.py`" holds for the replay step. The counterfactual
+  calibration history itself was made from local snapshots that show people and aren't committed,
+  so it can be replayed but not regenerated.
 
 **Clutter check.**
 * The detector adds about 1.5-2 px to every radius. A far ball of 1 px measured 2.6-2.9 px
@@ -1000,7 +1008,8 @@ spoke 25. Two causes:
   calibration), not when its wait ran out.
 Now it uses the calibration in use and the connection state at the time (sessions logged from
 2026-11-21 on; older ones as before) and decides each bounce at its due time. Same reports:
-25 calls, identical to live call by call. Test:
+25 calls, identical to live call by call (time, text, line; p(out) differs by up to 0.002 on two:
+entry 33). Test:
 `test_replay_judges_with_the_calibration_in_use_at_the_time`. (The Samsung gives 619 reports in
 replay, 666 live: unexplained, no call affected; roadmap.)
 
@@ -1009,8 +1018,12 @@ which never reported, held every two-camera call. Now it doesn't wait for a came
 the spot, and waits 0.25 s (`weak_wait_s`) for one that catches fewer than `weak_rate` of bounces
 there. A late report from such a camera is still dropped (one decision per bounce) but corrects
 its hit rate, so a slow camera doesn't drift into "weak" because its reports come late. Same
-reports, replay: the 25 calls go out 0.35 s sooner (live: about 0.9 s after the bounce instead
-of 1.3 s); the calls are the same. `--strict-veto` keeps the full wait.
+reports, replay: the 25 calls go out 0.35 s sooner; the calls are the same. `--strict-veto`
+keeps the full wait. **Corrected (review of a9fbde6):** the saving applies to two-camera calls,
+so live they would come about 0.85-1.25 s after the bounce instead of 1.2-1.6 s (not "about 0.9 s
+instead of 1.3 s"). **Changed in entry 33:** skipping a camera that can't see the spot let a lone
+wrong report release its bounce early, and added one OUT on field test 3 (3694.55 s); a camera is
+now skipped only once two reports agree.
 
 **Every phone says the call.** The server already sent each call to the phones (they flashed it).
 Now the app says it ("Out"): iOS AVSpeechSynthesizer (plays with the silent switch on), Android
@@ -1051,6 +1064,7 @@ Are we improving, and is the project worth building? Four good cameras seem a mu
   and drift, dead balls). Accuracy has never been measured on a full court.
 * Market: PlayReplay and Owl AI call lines on the pro tours in 2026; SwingVision does it from one
   iPhone. The niche left is a low-cost permanent installation, or a base for the analytics.
+  (Press reports, listed with links in the study's section 5; not checked independently.)
 
 **Decision.** Continue, as measurement sessions: four good cameras at the corners, firm mounts, a
 person logging real calls, chalk marks for the far half. Go/no-go after three such sessions
@@ -1068,7 +1082,9 @@ reply to it; very short replies and the work in between are not, the reasoning i
 serve):
 * 272 bounces could have been serves (between points, 3 s or more after the last ball in play).
   59 were recognised (62 live). All 59 landed in a service court; 57 of them clearly cross-court,
-  2 within the 1 m allowed of the centre line, so every one was IN. None landed in the kitchen or out.
+  2 within the 1 m allowed of the centre line. None landed in the kitchen or out. **Corrected
+  (entry 33):** 58 were called IN and 1 UNCERTAIN, not all IN. Reproduce at a9fbde6 with
+  `scripts/serve_study.py data/field/20261122-071401` (committed in entry 33).
 * No recognised serve landed in a fault zone, so there was no FAULT to call. In field test 3 the
   same code path spoke 3 FAULTs as recorded, 6 with the counterfactual calibrations.
 * Long serves were called, but as "OUT": the probable faulty serves at 1520 s, 2433 s and 3370 s
@@ -1084,7 +1100,8 @@ serve):
     landing in a service court.
   * With quadratic drag (k = 0.03 per metre), the recognised serves trace to 0.2-1.7 m, a real
     contact height. 10-20 of the 47 rejected bounces then fall in a plausible range; the others
-    are probably balls hit back to the server between points.
+    are probably balls hit back to the server between points. (These drag figures are an estimate
+    from a scratch calculation, not committed; they need re-doing with the drag-aware trace.)
   * So some slower serves were missed. A wrong-court or kitchen serve among them would have been
     judged as a rally ball.
 
@@ -1092,6 +1109,107 @@ serve):
 The risk is false FAULTs: a ball hit back to the server between points can look like a serve that
 landed in the wrong court. Check on field tests 3 and 4 (recognised serves, any FAULT spoken
 between points), then against the logged real calls in the next measured session (a FAULT tap).
+
+---
+
+## 33. Review of a9fbde6: credential lines out of the public log, a lone report can't cut the wait, guarded POSTs (2026-11-22)
+
+**Request.** The reviewing agent checked the field-test-4 push (e34bc6e to a9fbde6) and listed
+P0-P3 items. The owner chose, in writing: keep auto-committing the evolution log, with filters;
+don't rewrite history; every phone keeps saying the calls; the wait rule is mine to choose from
+the tests so far. Response with every item: `docs/reviews/2026-11-22-response-to-a9fbde6-review.md`.
+
+**P0, the public log.** It described where a credential was kept, what it could do and how pushes
+were made (no secret value). Now every line that mentions credentials is replaced by a note, when
+the log is written and again before each commit (`scripts/hooks/privacy.py`); 53 lines replaced.
+Commit subjects are built from file names, never from conversation text. History is not rewritten
+(owner).
+
+**A lone report can't cut the wait (field test 3, 3694.55 s).**
+* d930a60 stopped waiting for cameras that can't see the spot, judged from the report in hand. A
+  lone iPhone report 1.44 m past the right sideline made the other two cameras "unable to see", so
+  the bounce was released 4 ms after it arrived and their reports, 4 and 13 ms later and inside
+  the court, were dropped as late. One extra OUT was spoken in the counterfactual replay.
+* Choice between A (wait for every calibrated camera, 0.35 s slower two-camera calls) and B (skip
+  a camera only after two reports agree). B: on field test 3 the skip's only effect was this wrong
+  call; on field test 4 the speed-up came from two agreeing cameras not waiting for weak ones,
+  which B keeps. A lone or contradicted report now always waits for every calibrated camera, up to
+  `hold_s`. This also covers the review's weak-camera probe: a weak camera's agreeing report 0.4 s
+  late is waited for, because until it arrives there is only one report.
+* Tests (each failed at a9fbde6): the three field-3 reports; the weak camera's late agreement; two
+  disagreeing reports wait for every camera. Kept: two agreeing reports still skip a weak camera.
+* Calls, same cached reports, `scratchpad` judge runs mirroring `replay()` (headline numbers also by
+  `scripts/replay_counts.py`, below):
+
+| Session | e34bc6e | a9fbde6 | now | Calls that moved |
+|---|---|---|---|---|
+| Field 3, counterfactual | 1 212 / 27 (21 OUT, 6 FAULT) | 1 212 / 28 (22 OUT, 6 FAULT) | 1 212 / 27 (21 OUT, 6 FAULT) | 3694.55 s OUT sideline right, +143.8 cm, iPhone alone, p(out) 1.00 → three cameras, UNCERTAIN, p(out) 0.44, silent |
+| Field 3, as recorded | 940 / 30 | 940 / 30 | 940 / 30 | none |
+| Field 4 | 1 118 / 23 (old replay timing) | 1 118 / 25 | 1 118 / 25 | none |
+
+* The cost is time on lone calls: replay bounce → decision p50/p90, spoken calls, field 4: one
+  camera 0.50/0.50 s at a9fbde6, 0.50/0.85 s now; two cameras 0.50/0.53 s, now 0.50/0.84 s.
+* Field 4, replay against live: the same 25 calls (time, text, line); p(out) differs by up to
+  0.002 on two (1010.31 s, 2073.99 s). 1 118 decisions in replay, 1 121 live; the Samsung gives
+  619 reports in replay, 666 live (still unexplained). Entry 30's "identical call by call" means
+  this.
+
+**Second bounce without flight data (review P1-2).** The play state's rule (a later bounce on the
+same half, further out, within 3 s, without flight data, is the unreturned ball) applied only when
+the earlier bounce also lacked flight data. Now it applies whatever the earlier bounce had. Test:
+a 2.0 s second bounce after one with flight data is suppressed; a first bounce 4 s later is still
+called. Not changed: the judge's own 1.2 s check; with flight data the play state's trajectory
+check tells a return from a second bounce, and a 3 s window there would silence real returns.
+
+**POST routes guarded (review P1-4).** Calibrate, snap, proposal, context, play mode and stop now
+need the `X-BallTracker` header, and a browser Origin other than the server's own is refused
+(403). A web page elsewhere can't send the header without a preflight the server never grants. A
+device on the network that crafts its own requests still can: a per-session secret shown on the
+dashboard would close that (not built). Test: every POST route without the header, or from
+another origin, is refused and the session keeps running.
+
+**Ball-size check margin (review P1-5).** From committed code (`scripts/ball_size_report.py`, same
+numbers as the cached reports): field 3 counterfactual, largest ratio per camera iPhone 2.26,
+Nothing 2.21, Samsung 2.81; smallest margin to the limit 4.3, 5.6 and 2.6 px. With the 2 px slack
+the effective ratio limit at those ball sizes is 3.3-3.7. With the check switched off, the same
+session gives the same reports from every camera (874, 152, 720) and the same 27 calls: on field
+test 3 it removes no bounce at all, so no change to the cap or the slack.
+Test: a 1.2 px ball at the far baseline of a 640×360 camera, measured 2.5 px too large (ratio
+3.0), keeps its bounce, and with a near camera's report the call is OUT.
+
+**Field-test-4 data in the repo (review P1-6).** `data/field/20261122-071401` (39 MB: detections of
+every frame, events, calibrations; no images; names scrubbed; the Mac's process names dropped from
+`host_stats`), exported by `scripts/export_for_repo.py --session`. Replay reads the compressed
+`events.jsonl.gz`. Entry 32's serve counts are now reproduced by `scripts/serve_study.py`: 272
+candidates, 59 serves at a9fbde6 (58 IN, 1 UNCERTAIN: entry 32 said all IN); 273 and 60 now (the
+second-bounce change moves one point boundary). Its drag estimates came from a scratch calculation
+and are marked so.
+
+**Field-3 figures (review P1-7).** They reproduce on the owner's Mac (940 / 30 as recorded, 1 212
+counterfactual, at e34bc6e, a9fbde6 and now); the reviewer's environment gives one iPhone report
+fewer (939 / 29, 1 211). Cause not found; `replay_counts.py` prints the environment line now.
+
+**Smaller items.**
+* A late report credits the released bounce it was counted missing from, not just the first one in
+  the window (test with two released bounces). The credit corrects the hit rate only; a call
+  already made stays.
+* `can_see` with a calibration 15 cm off at the court centre (30 cm on the far half): the answer
+  changes only within 0.4 m of the edge of the camera's view, 0.4% of the area (test). There the
+  camera's silence neither waits nor vetoes.
+* Android speech runs on the main thread, shuts a failed engine down, logs a missing voice. iOS
+  reactivates the audio session for every call (after a phone call or Siri) and releases it after.
+  Both compile (Release); neither has run on a device since.
+* Flaky end-to-end test (`test_live_server_end_to_end_edge_phones`): 10 of 10 passed in a row on
+  an idle Mac (about 70 s each), and it passed in a full run under load. Still real-time; a
+  frame-driven server clock stays on the roadmap.
+* Market claims (entry 31, study section 5) now list their sources; the club price, which only an
+  aggregator gave, is cut.
+
+**Checked.** Python tests: 133 at e34bc6e, 139 at a9fbde6, 156 now. App tests 18 of 18; `tsc`
+(TypeScript 6.0.3) clean. Android `./gradlew --offline :app:assembleRelease` and iOS `xcodebuild
+... -configuration Release -sdk iphoneos CODE_SIGNING_ALLOWED=NO build` succeed. CI run 45045310997
+(b36f9e1): both jobs passed; the native-flags job found the NDK on macos-latest, 0 fused
+multiply-adds with the app flags (10 without) for iOS and Android.
 
 ---
 
@@ -1106,7 +1224,11 @@ between points), then against the logged real calls in the next measured session
 * Retire the Redmi (no bounces even when well calibrated); the Nothing only as a spare.
 * Find which camera is biased on the far half: chalk 10 marks just inside / outside the far
   baseline and sideline, bounce on each, compare (`scripts/score_marks.py`).
-* Why the Samsung gives 7% fewer reports in replay than live.
+* Why the Samsung gives 7% fewer reports in replay than live, and why another environment gives
+  one iPhone report fewer on field test 3 (entry 33).
+* Check on a device: calls spoken on Android and iOS, also after a phone call or Siri (entry 33).
+* Drag-aware serve trace (entry 32), checked on field tests 3 and 4 for false FAULTs.
+* If the network isn't trusted: a per-session secret on the dashboard for the POST routes (entry 33).
 
 **Then: confirm on court (entries 24-25 are built)**
 * Next session in Match mode with the Court screen: check the serve FAULT calls against what the

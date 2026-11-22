@@ -297,3 +297,27 @@ def test_a_shirt_sized_blob_makes_no_bounce():
     out = handle_dets(pipe, frames_for(cam, ts, ps), (1280, 720), 0.0) + flush_ctl(pipe, 10**6)
     rr = [o["event"]["provenance"]["params"]["r_ratio"] for o in out if o.get("kind") == "bounce"]
     assert len(rr) == 1 and 0.7 < rr[0] < 1.4
+
+
+def test_a_real_far_bounce_of_a_tiny_ball_on_a_low_resolution_camera_keeps_its_call():
+    """Review of a9fbde6, P1-5: a ball 1.2 px in radius at the far baseline of a 640x360 camera,
+    measured 2.5 px too large (ratio 3.0, above the plain 3.0 cap): the bounce is kept and takes
+    part in the call. (On its own that camera is +-35 cm along the court there, so its lone report
+    is rightly unsure of a bounce 25 cm out; with a near camera's report the call is OUT.)"""
+    cam = Camera.look_at(position=[0.0, -9.5, 3.0], target=[0.0, 2.0, 0.0], image_size=(640, 360), hfov_deg=60)
+    cam.reprojection_rms_px = 0.5
+    ts, ps, _ = flight(p0=(0.5, 4.5, 1.0), v0=(0.2, 7.0, -1.0))  # lands ~25 cm past the far baseline
+    frames = [(1000 + k, float(t), [(u, v, r + 2.5, 1.0)]) for k, (t, (u, v, r, _)) in
+              enumerate((t, f[2][0]) for t, f in zip(ts, frames_for(cam, ts, ps)))]
+    pipe = LiveCameraPipeline("c", COURT, cam, LiveConfig())
+    out = handle_dets(pipe, frames, (640, 360), 0.0) + flush_ctl(pipe, 10**6)
+    (b,) = [BounceEvent.model_validate(o["event"]) for o in out if o.get("kind") == "bounce"]
+    assert b.provenance.params["r_ball_px"] < 1.3 and b.provenance.params["r_ratio"] > 3.0
+    assert abs(b.position.y - ps[np.argmin(ps[:, 2]), 1]) < 0.15  # where the ball landed
+    near = b.model_copy(update={"camera_ids": ["near"], "cov_xy": [[0.03**2, 0.0], [0.0, 0.03**2]],
+                                "position": Point3(x=0.55, y=6.94)})
+    j = LiveJudge(COURT, hold_s=0.3, play=PlayConfig(enabled=False))
+    j.add(b, b.t + 0.3)
+    j.add(near, b.t + 0.3)
+    (d,) = j.flush()
+    assert d.call.call_text == "OUT" and len(d.bounce.camera_ids) == 2

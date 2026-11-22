@@ -263,10 +263,10 @@ try { if (/[?&]court\b/.test(location.search) || localStorage.getItem("bt-big") 
 document.querySelectorAll("[data-ctx]").forEach((b) => b.onclick = async () => {
   const c = b.dataset.ctx; let body = { mode: "rally" };
   if (c.startsWith("serve")) { const [, s, h] = c.split(":"); body = { mode: "serve", server_side: s, service_side: h }; }
-  await fetch("/api/context", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  await fetch("/api/context", { method: "POST", headers: { "Content-Type": "application/json", "X-BallTracker": "1" }, body: JSON.stringify(body) });
 });
 document.querySelectorAll("[data-mode]").forEach((b) => b.onclick = () =>
-  fetch("/api/play_mode", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode: b.dataset.mode }) }));
+  fetch("/api/play_mode", { method: "POST", headers: { "Content-Type": "application/json", "X-BallTracker": "1" }, body: JSON.stringify({ mode: b.dataset.mode }) }));
 function showMode(mode) { document.querySelectorAll("[data-mode]").forEach((b) => b.classList.toggle("on", b.dataset.mode === mode)); }
 function showContext(ctx) { document.querySelectorAll("[data-ctx]").forEach((b) => b.classList.toggle("on", b.dataset.ctx === ctx)); }
 
@@ -358,7 +358,7 @@ function camCard(c) {
       <span class="grp"><button class="pri">Review</button><button>Dismiss</button></span>`;
     const [rv, ds] = pr.querySelectorAll("button");
     rv.onclick = () => openCal(c.name, c.proposal.points, "proposal-" + c.proposal.source);
-    ds.onclick = () => fetch(`/api/cameras/${encodeURIComponent(c.name)}/proposal`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "dismiss" }) });
+    ds.onclick = () => fetch(`/api/cameras/${encodeURIComponent(c.name)}/proposal`, { method: "POST", headers: { "Content-Type": "application/json", "X-BallTracker": "1" }, body: JSON.stringify({ action: "dismiss" }) });
   } else if (pr) pr.remove();
   return card;
 }
@@ -423,7 +423,7 @@ $("stopsess").onclick = async () => {
   if (!confirm("Stop the session?\n\nEvery phone stops its camera and goes back to its start screen. The server saves the session summary and report, then exits (start it again with bt serve).")) return;
   $("stopsess").disabled = true; sessionEnded = true;
   try {
-    const r = await (await fetch("/api/stop", { method: "POST" })).json();
+    const r = await (await fetch("/api/stop", { method: "POST", headers: { "X-BallTracker": "1" } })).json();
     $("conn").textContent = "session ended" + (r.report ? ` · report: ${r.report}` : "");
   } catch (e) { $("conn").textContent = "session ending…"; }
 };
@@ -541,7 +541,7 @@ $("calc").onclick = (e) => {
 $("callines").onclick = async () => {
   const n = Object.keys(cal.pts).length;
   $("calres").textContent = n >= 4 ? "Snapping to the court lines…" : "Snapping (from the current calibration, or fully automatic if there is none)…";
-  const r = await fetch(`/api/cameras/${encodeURIComponent(cal.name)}/snap`, { method: "POST", headers: { "Content-Type": "application/json" },
+  const r = await fetch(`/api/cameras/${encodeURIComponent(cal.name)}/snap`, { method: "POST", headers: { "Content-Type": "application/json", "X-BallTracker": "1" },
     body: JSON.stringify({ points: cal.pts }) });
   const j = await r.json();
   if (!j.points || !Object.keys(j.points).length) { $("calres").textContent = "Snap failed: " + (j.message || j.error || "no court lines found") + ". Click the points by hand."; return; }
@@ -558,13 +558,13 @@ $("calsnap").onclick = snapshot;
 $("calcancel").onclick = () => { $("cal").style.display = "none"; };
 $("calclear").onclick = async () => {
   if (!confirm("Remove the saved calibration for " + cal.name + "?")) return;
-  await fetch(`/api/cameras/${encodeURIComponent(cal.name)}/calibrate`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ clear: true }) });
+  await fetch(`/api/cameras/${encodeURIComponent(cal.name)}/calibrate`, { method: "POST", headers: { "Content-Type": "application/json", "X-BallTracker": "1" }, body: JSON.stringify({ clear: true }) });
   $("calres").textContent = "Calibration removed.";
 };
 $("caldone").onclick = async () => {
   const n = Object.keys(cal.pts).length;
   if (n < 4) { $("calres").textContent = "Click at least 4 points (6+ recommended)."; return; }
-  const r = await fetch(`/api/cameras/${encodeURIComponent(cal.name)}/calibrate`, { method: "POST", headers: { "Content-Type": "application/json" },
+  const r = await fetch(`/api/cameras/${encodeURIComponent(cal.name)}/calibrate`, { method: "POST", headers: { "Content-Type": "application/json", "X-BallTracker": "1" },
     body: JSON.stringify({ points: cal.pts, image_size: [cal.img.naturalWidth, cal.img.naturalHeight],
       source: cal.auto.size ? cal.source : "clicks" }) });
   const j = await r.json();

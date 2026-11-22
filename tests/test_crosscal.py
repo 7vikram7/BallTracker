@@ -92,7 +92,7 @@ def test_dashboard_snap_then_calibrate_endpoints(tmp_path):
     import cv2
     from aiohttp.test_utils import TestClient, TestServer
 
-    from balltracker.live.server import CamState, LiveServer
+    from balltracker.live.server import POST_HEADER, CamState, LiveServer
     from balltracker.synthetic import calibration_clicks
 
     scene = build_scene(SynthConfig(fps=30, width=1280, height=720, n_shots=1, seed=3, camera_preset="corner_high"))
@@ -110,11 +110,12 @@ def test_dashboard_snap_then_calibrate_endpoints(tmp_path):
             rng = np.random.default_rng(0)
             taps = {k: (np.array(truth[k]) + rng.normal(0, 20, 2)).tolist()
                     for k in ["B_left_corner", "B_right_corner", "B_kitchen_left", "B_kitchen_right"]}
-            snap = await (await cl.post("/api/cameras/c1/snap", json={"points": taps})).json()
+            snap = await (await cl.post("/api/cameras/c1/snap", json={"points": taps}, headers={POST_HEADER: "1"})).json()
             err = [np.hypot(*(np.array(snap["points"][k]) - np.array(truth[k]))) for k in snap["points"]]
             assert snap["ok"] and np.median(err) < 2.5 and len(err) >= 8
             cal = await (await cl.post("/api/cameras/c1/calibrate",
-                                       json={"points": snap["points"], "image_size": [1280, 720], "source": "snap"})).json()
+                                       json={"points": snap["points"], "image_size": [1280, 720], "source": "snap"},
+                                       headers={POST_HEADER: "1"})).json()
             assert cal["ok"] and cal["rms_px"] < 1.5 and srv.reference_cam == "c1"
 
     asyncio.run(run())

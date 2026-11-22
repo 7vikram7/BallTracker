@@ -81,7 +81,7 @@ def test_a_late_report_corrects_the_hit_rate_it_was_counted_against():
 
 
 def test_stop_session_stops_every_phone_and_shuts_the_server_down(tmp_path):
-    from balltracker.live.server import LiveServer
+    from balltracker.live.server import POST_HEADER, LiveServer
 
     async def run():
         srv = LiveServer(COURT, tmp_path)
@@ -90,7 +90,7 @@ def test_stop_session_stops_every_phone_and_shuts_the_server_down(tmp_path):
             await phone.send_json({"type": "hello", "proto": 2, "mode": "edge", "name": "cam1", "width": 1280,
                                    "height": 720, "fps": 30, "algo": "edge_color_motion", "reduce": True})
             dash = await cl.ws_connect("/ws/dashboard")
-            r = await (await cl.post("/api/stop")).json()
+            r = await (await cl.post("/api/stop", headers={POST_HEADER: "1"})).json()
             assert r["ok"] and r["report"].endswith("report.md")
 
             async def until_end(ws):
@@ -102,7 +102,7 @@ def test_stop_session_stops_every_phone_and_shuts_the_server_down(tmp_path):
             assert "dashboard" in (await until_end(phone))["reason"]
             await until_end(dash)
             await asyncio.wait_for(srv.shutdown.wait(), timeout=5)
-            again = await (await cl.post("/api/stop")).json()  # a second click does nothing new
+            again = await (await cl.post("/api/stop", headers={POST_HEADER: "1"})).json()  # a second click does nothing new
             assert again["ok"]
         stops = [line for line in (srv.session_dir / "events.jsonl").read_text().splitlines() if "session_stop" in line]
         assert len(stops) == 1
@@ -149,3 +149,104 @@ def test_replay_judges_with_the_calibration_in_use_at_the_time(monkeypatch):
         c["online"] = None
     early, _ = judge_reports(COURT, cameras, {"a": [out(10.0), out(30.0)], "b": []})
     assert early["unconfirmed_by"] == ["b"]
+
+
+def _report(t, x, y, cam, std=0.05):
+    e = _ev(t, x, y, cam)
+    return e.model_copy(update={"cov_xy": [[std**2, 0.0], [0.0, std**2]]})
+
+
+FIELD3_CAMS = {"iphone", "nothing", "samsung"}
+
+
+def _field3_3694(judge):
+    """Review of a9fbde6, P1-1: field 3, bounce at 3694.55 s. The iPhone's report puts it 1.44 m past
+    the right sideline; the other two cameras report the same moment inside the court, 4 and 13 ms
+    later. From the iPhone's spot, the other two were judged unable to see."""
+    t = 3694.55
+    out = []
+    for cam, x, y, arrive in (("iphone", 4.50, 5.82, 3694.798), ("nothing", -1.07, 5.49, 3694.802),
+                              ("samsung", -0.86, -4.59, 3694.811)):
+        judge.add(_report(t, x, y, cam), now=arrive)
+        out += judge.poll(arrive, FIELD3_CAMS)
+    out += judge.poll(t + 2.0, FIELD3_CAMS)
+    return out
+
+
+def test_a_lone_report_cannot_release_its_bounce_before_the_cameras_that_contradict_it():
+    j = LiveJudge(COURT, hold_s=0.6, play=PlayConfig(enabled=False),
+                  can_see=lambda cam, x, y: cam == "iphone" or x < 3.5)  # the far right edge: iPhone only
+    j.poll(0.0, FIELD3_CAMS)
+    (d,) = _field3_3694(j)
+    assert j.late_reports == 0 and len(d.sources) == 3
+    assert not d.call.announce  # a9fbde6: OUT announced on the iPhone alone, the other two dropped as late
+
+
+def test_a_weak_cameras_agreeing_report_is_waited_for_when_it_is_the_only_confirmation():
+    """Review of a9fbde6, P1-3: good camera OUT at the bounce; a weak camera (hit rate 0.15) reports the
+    same OUT 0.4 s later. A lone report never releases early, so the call carries both cameras."""
+    j = _judge()
+    _teach_weak(j)
+    t = 100.0
+    two = {"c1", "weak"}  # the review's probe: one good camera and one weak one
+    j.add(_ev(t, 0.5, COURT.half_l + 0.4, "c1"), now=t + 0.5)
+    assert j.poll(t + 0.5 + j.weak_wait_s + 0.01, two) == []  # a9fbde6: released here, one camera
+    j.add(_ev(t, 0.5, COURT.half_l + 0.4, "weak"), now=t + 0.9)
+    (d,) = j.poll(t + 0.9, two)
+    assert {e.camera_ids[0] for e in d.sources} == two
+
+
+def test_two_agreeing_reports_still_skip_a_weak_camera():
+    """The speed-up kept from a9fbde6: once two cameras agree, a weak one gets only weak_wait_s."""
+    j = _judge()
+    _teach_weak(j)
+    t = 200.0
+    j.add(_ev(t, 0.5, 3.0, "c1"), now=t + 0.5)
+    j.add(_ev(t, 0.5, 3.0, "c2"), now=t + 0.55)
+    assert len(j.poll(t + 0.5 + j.weak_wait_s, CAMS)) == 1
+
+
+def test_two_disagreeing_reports_wait_for_every_camera():
+    j = LiveJudge(COURT, hold_s=0.6, play=PlayConfig(enabled=False), can_see=lambda cam, x, y: cam != "weak")
+    j.poll(0.0, CAMS)
+    t = 300.0
+    j.add(_report(t, 4.5, 3.0, "c1"), now=t + 0.5)
+    j.add(_report(t, -1.0, 3.0, "c2"), now=t + 0.51)  # 5.5 m apart
+    assert j.poll(t + 0.52, CAMS) == []  # "weak" can't see the spot, but the two reports don't agree
+    assert len(j.poll(t + 0.5 + 0.61, CAMS)) == 1  # hold_s
+
+
+def test_post_routes_refuse_requests_without_the_dashboard_header_or_from_another_origin(tmp_path):
+    """Review of a9fbde6, P1-4: any device on the network could end the session with one POST, and a
+    web page could send it from a browser (a body-less POST needs no CORS preflight)."""
+    from balltracker.live.server import POST_HEADER, LiveServer
+
+    async def run():
+        srv = LiveServer(COURT, tmp_path)
+        async with TestClient(TestServer(srv.make_app())) as cl:
+            for path in ("/api/stop", "/api/context", "/api/play_mode", "/api/cameras/c1/calibrate",
+                         "/api/cameras/c1/snap", "/api/cameras/c1/proposal"):
+                assert (await cl.post(path, json={})).status == 403, path
+                foreign = {POST_HEADER: "1", "Origin": "http://evil.example"}
+                assert (await cl.post(path, json={}, headers=foreign)).status == 403, path
+            assert not srv.shutdown.is_set() and not srv.stopping
+            own = {POST_HEADER: "1", "Origin": str(cl.make_url("")).rstrip("/")}
+            assert (await cl.post("/api/stop", headers=own)).status == 200
+
+    asyncio.run(run())
+
+
+def test_a_late_report_credits_the_released_bounce_it_was_counted_missing_from():
+    """Review of a9fbde6, P3-8: two released bounces within the window of a late report; the camera
+    was counted as missing only in the second. The credit used to look in the first one only."""
+    j = _judge(can_see=lambda cam, x, y: cam != "weak" or y > 0)  # "weak" sees only the y > 0 half
+    _teach_weak(j)
+    before = list(j.recall.counts[("weak", 0)])
+    t = 100.0
+    for tt, y in ((t, -3.0), (t + 0.10, 3.0)):  # first: weak can't see; second: weak can and misses it
+        j.add(_ev(tt, 0.5, y, "c1"), now=tt + 0.5)
+        j.add(_ev(tt, 0.5, y, "c2"), now=tt + 0.5)
+    assert len(j.poll(t + 2.0, CAMS)) == 2
+    assert j.recall.counts[("weak", 0)] == [before[0], before[1] + 1]
+    j.add(_ev(t + 0.05, 0.5, 3.0, "weak"), now=t + 2.1)  # within the window of both released bounces
+    assert j.recall.counts[("weak", 0)] == [before[0] + 1, before[1] + 1]

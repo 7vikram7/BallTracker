@@ -276,12 +276,16 @@ class PlayState:
                     abs(dt - dt_pred) <= max(cfg.second_time_tol_s, cfg.second_time_tol_frac * dt_pred):
                 label, ok, suppress = "second bounce", False, "second bounce (ball not returned)"
                 out.update(pred_err_m=round(pos_err, 2), dt_pred_s=round(dt_pred, 2))
-        if label is None and fl is None and p is not None and p.eligible and p.v_out is None \
+        if label is None and fl is None and p is not None and p.eligible \
                 and 0 < b.t - p.t <= cfg.second_max_s and np.sign(p.xy[1]) == np.sign(xy[1]) \
                 and abs(xy[1]) > abs(p.xy[1]):
-            # Neither bounce has flight data, so the second-bounce prediction above can't run. A
-            # later bounce on the same half, further from the net, within the window is the
-            # unreturned ball bouncing again (the judge's own 1.2 s check misses 1.2-3 s).
+            # This bounce has no flight data, so nothing shows the ball came back over the net. A
+            # later bounce on the same half, further from the net, within the window is taken for
+            # the unreturned ball bouncing again (the judge's own 1.2 s check misses 1.2-3 s),
+            # whether or not the earlier bounce had flight data (review of a9fbde6: with it, a
+            # 2.0 s second bounce was "start of play (no flight data)" and announced). Silence
+            # first: a return landing deeper on the same half within 3 s, seen without flight
+            # data, is not called either.
             label, ok, suppress = "second bounce", False, "second bounce (no flight data)"
         lob = vz_in is not None and -vz_in >= cfg.lob_vz_mps
         if label is None and h_in is not None and h_in < cfg.dead_ball_mps and -vz_in < cfg.dead_ball_vz_mps:

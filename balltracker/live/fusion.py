@@ -155,7 +155,8 @@ class CameraRecall:
         c[1] += 1.0
 
     def credit(self, cam: str, dist: float | None) -> None:
-        """A bounce counted as missed was caught after all (its report came late): miss -> hit."""
+        """A bounce counted as missed was caught after all (its report came late): miss -> hit.
+        Only the hit rate is corrected: a call already made without that camera stays made."""
         c = self.counts.get((cam, self.band(dist)))
         if c is not None and c[0] < c[1]:
             c[0] += 1.0
@@ -238,9 +239,10 @@ class LiveJudge:
             # waiting). Judging it alone would make a second decision for one bounce, so it is
             # dropped (counted). It did catch the bounce, though: undo a miss counted against it.
             self.late_reports += 1
-            for c in cam:
-                if c in done[0]:
-                    self.recall.credit(c, done[0].pop(c))
+            for c in cam:  # the released bounce it was counted missing from (one credit per report)
+                hit = next((m for m in done if c in m), None)
+                if hit is not None:
+                    self.recall.credit(c, hit.pop(c))
             return
         for g in self._groups:
             if abs(g.t - ev.t) <= self.window_s:
@@ -273,11 +275,19 @@ class LiveJudge:
         return out
 
     def _still_waiting_for(self, g: _Group, expected: set[str], now: float) -> set[str]:
-        """The calibrated cameras whose report on this bounce could still come and matter: not those
-        that can't see the spot, and a weak camera there (hit rate < weak_rate) only for weak_wait_s."""
+        """The calibrated cameras whose report on this bounce could still come and matter.
+
+        Every missing calibrated camera, until two reports agree (fused without inflation). Only
+        then are the cameras that can't see the spot skipped, and a weak camera there (hit rate <
+        weak_rate) waited for only weak_wait_s. Which cameras "can see" is judged from the reports in
+        hand, so a lone wrong report would otherwise silence the cameras that would contradict it
+        (field 3, 3694.55 s: a lone OUT 1.44 m past the sideline was released 4 ms after it arrived,
+        and the two reports placing the bounce inside the court were dropped as late)."""
         missing = expected - g.cameras()
         if not missing:
             return set()
+        if len(g.cameras()) < 2 or fuse(g.events)[1]["inflation"] > 1.0:
+            return missing  # a lone or contradicted report never releases its bounce early
         x = float(np.mean([e.position.x for e in g.events]))
         y = float(np.mean([e.position.y for e in g.events]))
         waited = now - g.first_arrival

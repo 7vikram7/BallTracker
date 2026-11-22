@@ -43,9 +43,12 @@ ARRIVAL_DELAY_S = 0.25  # typical report delay after the bounce (settle time + p
 def read_events(session: Path) -> list[dict]:
     p = Path(session) / "events.jsonl"
     if not p.exists():
-        return []
+        p = p.with_name("events.jsonl.gz")  # large sessions are stored compressed in git
+        if not p.exists():
+            return []
+    text = gzip.decompress(p.read_bytes()).decode() if p.suffix == ".gz" else p.read_text()
     out = []
-    for line in p.read_text().splitlines():
+    for line in text.splitlines():
         try:
             out.append(json.loads(line))
         except ValueError:

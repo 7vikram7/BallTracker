@@ -148,6 +148,24 @@ class CamState:
         return (len(a) - 1) / span if span > 0 else 0.0
 
 
+# Every POST (calibrate, snap, proposal, context, play mode, stop) must carry this header and, if
+# the browser sends an Origin, come from the server's own pages. A custom header can't be sent
+# cross-site without a CORS preflight, which the server never grants, so a web page elsewhere can't
+# end the session or change a calibration. It doesn't stop a device on the network that crafts
+# its own requests (that would need a per-session secret shown on the dashboard).
+POST_HEADER = "X-BallTracker"
+
+
+@web.middleware
+async def _post_guard(request: web.Request, handler):
+    if request.method == "POST":
+        origin = request.headers.get("Origin")
+        own = {f"{s}://{request.host}" for s in ("http", "https")}
+        if request.headers.get(POST_HEADER) != "1" or (origin is not None and origin not in own):
+            return web.json_response({"ok": False, "error": "refused: not from this server's dashboard"}, status=403)
+    return await handler(request)
+
+
 class LiveServer:
     def __init__(self, court: CourtSpec, data_dir: Path, *, record: bool = False,
                  detector_overrides: dict | None = None, https_port: int = 8443, http_port: int = 8080,
@@ -1073,7 +1091,7 @@ class LiveServer:
 
     # ------------------------------------------------------------- app
     def make_app(self) -> web.Application:
-        app = web.Application(client_max_size=4 * 1024 * 1024)
+        app = web.Application(client_max_size=4 * 1024 * 1024, middlewares=[_post_guard])
         app.router.add_get("/", self.page)
         app.router.add_get("/ws/camera", self.ws_camera)
         app.router.add_get("/ws/edge", self.ws_camera)  # native app (protocol 2); same handler

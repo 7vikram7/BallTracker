@@ -81,24 +81,41 @@ public class BallCameraModule: Module {
 
 /// Text-to-speech for the server's calls. One synthesizer, kept alive (a released one stops mid-word);
 /// a new call cuts off the previous one.
-final class CallVoice {
+/// Speaks the server's calls. The audio session is activated for every call, not once: a phone
+/// call or Siri deactivates it, and calls would otherwise stay silent afterwards (review of
+/// a9fbde6, P2-3). When speech ends it is deactivated again, so other audio stops being ducked.
+/// Not yet checked on a device after an interruption.
+/// @unchecked Sendable: every use of the synthesizer and the audio session is on the main queue.
+final class CallVoice: NSObject, AVSpeechSynthesizerDelegate, @unchecked Sendable {
   private let synth = AVSpeechSynthesizer()
-  private var sessionReady = false
+  private var categorySet = false
+
+  override init() {
+    super.init()
+    synth.delegate = self
+  }
 
   func say(_ text: String) {
     DispatchQueue.main.async {
-      if !self.sessionReady {
+      let session = AVAudioSession.sharedInstance()
+      if !self.categorySet {
         // .playback: audible with the silent switch on; mixWithOthers + duckOthers: music dips, keeps playing.
-        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .voicePrompt, options: [.mixWithOthers, .duckOthers])
-        try? AVAudioSession.sharedInstance().setActive(true)
-        self.sessionReady = true
+        try? session.setCategory(.playback, mode: .voicePrompt, options: [.mixWithOthers, .duckOthers])
+        self.categorySet = true
       }
+      try? session.setActive(true)
       if self.synth.isSpeaking { self.synth.stopSpeaking(at: .immediate) }
       let u = AVSpeechUtterance(string: text.capitalized)
       u.rate = 0.5
       u.volume = 1.0
       u.voice = AVSpeechSynthesisVoice(language: "en-US")
       self.synth.speak(u)
+    }
+  }
+
+  func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+    if !synthesizer.isSpeaking {
+      try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
   }
 }
