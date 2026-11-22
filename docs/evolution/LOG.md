@@ -1769,3 +1769,22 @@ The analysis is in decision log entry 32.
 ## 2026-11-22 16:02 · request (session 1661f7c3)
 
 > Ensure the hooks commits to repo after every updated conversation log
+
+### 2026-11-22 16:14 · outcome
+
+Fixed and pushed. From now on the log is committed and pushed at the end of every response that changes it, whether or not the tests have run since the last code change.
+
+**Why it was failing:** the hook committed only when the whole working tree matched the last passing full test run. That run was at 09:23 and I committed by hand after it, so the hook skipped every turn and the log sat uncommitted.
+
+**What it does now** ([autocommit.py](scripts/hooks/autocommit.py)):
+- **Only the log changed:** it commits `docs/evolution/LOG.md` alone as "Evolution log: <your request>" and pushes.
+- **Code changed but not tested since:** it still commits and pushes the log alone. The code stays uncommitted until a full test run passes, and anything you've staged stays staged.
+- **Code tested:** code and log go out together in one commit, as before.
+- The commit subject now comes from your actual request, not the summary written when the conversation runs out of space. That bug produced two badly named commits, 891df2b and 6eae291. Both are already pushed, so I've left them.
+
+**Checks:**
+- 6 new tests in [test_autocommit.py](tests/test_autocommit.py) run against a throwaway repo with its own remote, and they pass. The full suite passed too (144) before the last small fix; I re-ran only the hook tests after it.
+- I ran the real hook on the repo with the system `python3`: it committed the pending log (6eae291) and the remote matched.
+- The working tree is clean. When this reply ends, the hook will add it to the log and push it as "Evolution log: Ensure the hooks commits to repo after every updated conversation log". You can check that on GitHub.
+
+The catch is one small commit per substantive reply, so the history gets busier.
