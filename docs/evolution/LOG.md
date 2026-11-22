@@ -2327,3 +2327,35 @@ The catch is one small commit per substantive reply, so the history gets busier.
 
 > Going to bed now
 > Act on the feedback with your best judgement.
+
+### 2026-11-23 00:35 · outcome
+
+Everything in the review is done and pushed except the items that need you or a device. CI passed on the main commit (4c44c4a); the run on the final docs-only commit (551e492) was still going at last check.
+
+**Your choices, applied**
+- **Evolution log:** auto-commit is back on, with a filter. Any line the review flagged as P0 is replaced by a short note when it's written and again before each commit; 53 lines were replaced. Commit subjects now come from file names, never from what you typed. History was not rewritten.
+- **Speech:** every phone still says the calls.
+- **Wait rule:** I chose the review's option B. A camera that can't see the spot, or a weak one, is skipped only once two cameras already agree. A single camera's report always waits the full 0.6 s for the others.
+  - On field test 3 the faster rule's only effect was one wrong OUT, at 3694.55 s. That bounce is now judged on all three cameras and stays silent, so field test 3 gives the same 27 calls as before the faster rule.
+  - On field test 4 no call changes, and two-camera calls keep their speed (median 0.5 s after the bounce in replay).
+  - The cost is calls made by one camera alone: up to 0.85 s instead of 0.5 s.
+
+**Other fixes, each with a test that fails on the reviewed code**
+- **Second bounces:** a second bounce 1.2–3 s after a first one is no longer called OUT when the second report has no flight data.
+- **Server requests:** a web page elsewhere can no longer stop the session or change calibrations. A device on your network that sends its own requests still could; a per-session code shown on the dashboard would close that, and I haven't built it.
+- **Phone speech:**
+  - Android speech now runs on the right thread.
+  - iOS speech should come back after a phone call or Siri.
+  - Both apps build, but neither has been tried on a phone.
+- **Field 4 data:** the field 4 session is now in the repo (no images, names removed), so the reviewer can check every field 4 figure.
+
+**Numbers checked with the repo's own scripts**
+- **Field 3 figures:** they reproduce on your Mac. The reviewer's computer gets one fewer iPhone report from the same code; I haven't found why, so the replay script now prints its software versions with every count.
+- **Ball-size check:** it changes nothing on field test 3. Switching it off gives the same reports and the same 27 calls.
+- **Corrections:** I corrected a few published figures. The biggest: one of entry 32's 59 recognised serves was "unsure", not IN.
+
+The test suite passes (156 tests), as do the app tests and type check, and the flaky test passed 10 runs in a row. Decision log entry 33 has the details, and the item-by-item reply to the reviewer is in [the response file](docs/reviews/2026-11-22-response-to-a9fbde6-review.md).
+
+**Still needs a phone or you:**
+- Hear the calls on an Android phone and an iPhone, including after a phone call.
+- Decide whether to add the dashboard code that would block a device on your own network.
