@@ -2359,3 +2359,25 @@ The test suite passes (156 tests), as do the app tests and type check, and the f
 **Still needs a phone or you:**
 - Hear the calls on an Android phone and an iPhone, including after a phone call.
 - Decide whether to add the dashboard code that would block a device on your own network.
+
+## 2026-11-24 17:04 · request (session 1661f7c3)
+
+> Ok
+> Creating a new court smaple at home now with tape
+> Just for clarity, the outermost edges of the tape should fit within the dimesions of the court right?
+> Eg. if I am taking a width of 20 inches, the outermost edges of both sidelines shoudl fit within it
+
+### 2026-11-24 17:04 · outcome
+
+Yes, the outer edges. Pickleball court dimensions run to the outside edges of the lines, and the lines count as part of the court. The court model in the code works the same way. For a 20-inch-wide court, measure 20 in from the outer edge of one sideline tape to the outer edge of the other, so both tapes sit inside the 20 in.
+
+At 20 in wide your scale is 1:12 (a real court is 20 ft by 44 ft):
+
+- **Baselines:** 44 in apart, outer edge to outer edge, so both baseline tapes sit inside the 44 in.
+- **Kitchen lines:** 7 in from the middle of the court (where the net would be) to the kitchen tape's edge farther from the net. The kitchen tape lies inside the kitchen.
+- **Centrelines:** the tape is centred on the court's middle line (10 in from each outer sideline edge). They run from each kitchen line to its baseline.
+- **Tape width:** measure your tape and write its width in the court file. Unlike the court size, it doesn't scale.
+
+When you click points for calibration, click where the outer edges of the tapes meet.
+
+If you send me the final measurements and tape width, I'll write the court file.
