@@ -2496,3 +2496,15 @@ The Mac doesn't see your friend's iPhone on the cable at all right now. Develope
 **If this holds up play:** have your friend scan the dashboard's QR code and use the browser camera. It needs no install.
 
 Tell me once it's plugged in and I'll check whether the Mac sees it.
+
+### 2026-11-25 20:07 · outcome
+
+The phone is paired and the install is running. It's waiting for Developer Mode, which should now be in the list.
+
+**On your friend's phone:**
+1. Force-close **Settings** (swipe it away) and open it again.
+2. Go to **Privacy & Security**, scroll to the very bottom and open **Developer Mode**.
+3. Turn it **On** and tap **Restart**.
+4. After the restart, unlock it, tap **Turn On** and enter the passcode. Keep the cable plugged in and the phone unlocked.
+
+The script then registers, builds and installs by itself. Leave the Mac on this network until it finishes, and I'll tell you when it's done.
