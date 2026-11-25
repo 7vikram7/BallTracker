@@ -2422,3 +2422,9 @@ The APK is ready and the iOS app is built and signed. **Your friend's iPhone can
 If your friend can get to you before you leave, do this at home instead. If it fails at the court, use the browser camera link on that phone.
 
 The Python tests are still running. Today's only code change is the iPhone install script.
+
+### 2026-11-25 18:57 · outcome
+
+All 156 Python tests pass, and the install script change is pushed. I dry-ran its decision: the two registered iPhones get the ready build straight away, and an unregistered phone gets registered and built. No phone has been installed with it yet.
+
+**Xcode still had no account when I checked just now**, so your friend's phone can't be registered yet. Sign in at **Xcode > Settings > Accounts** with the same Apple account as before, then tell me "done" and I'll rerun the check before you leave.
