@@ -2452,3 +2452,23 @@ All 156 Python tests pass, and the install script change is pushed. I dry-ran it
 The one step I couldn't test is registering the new phone itself, because that needs the phone on the cable. Apple could still refuse it if the device slot isn't actually free; if that happens, use the browser camera link.
 
 I don't know how the account got removed from Xcode. I didn't find a cause in what I checked.
+
+### 2026-11-25 19:46 · outcome
+
+For a regulation court:
+
+```
+cd ~/Vikram/BallTracker && caffeinate -dims .venv/bin/bt serve --record
+```
+
+`caffeinate` stops the Mac from going to sleep while the server runs. Keep the lid open, and plug in if you can.
+
+- **Practice court with no serves:** add `--drill`.
+- **Your taped court, if it's 20 in wide:** add `--court-scale 0.0833`. If the tape isn't scaled down exactly from a real court, send me its measurements and I'll make a court file.
+
+**Order at the court:**
+1. Turn on the hotspot or router and join it from the Mac and phones. The hotspot also needs internet to register your friend's iPhone.
+2. Install the app on your friend's phone.
+3. Start the server last, because the QR code uses the Mac's network address at that moment. If you switch networks later, restart the server.
+
+To finish, press **Stop session** on the dashboard, then Ctrl+C in the terminal.
