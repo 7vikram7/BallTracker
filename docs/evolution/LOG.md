@@ -2428,3 +2428,27 @@ The Python tests are still running. Today's only code change is the iPhone insta
 All 156 Python tests pass, and the install script change is pushed. I dry-ran its decision: the two registered iPhones get the ready build straight away, and an unregistered phone gets registered and built. No phone has been installed with it yet.
 
 **Xcode still had no account when I checked just now**, so your friend's phone can't be registered yet. Sign in at **Xcode > Settings > Accounts** with the same Apple account as before, then tell me "done" and I'll rerun the check before you leave.
+
+## 2026-11-25 19:04 · request (session 1661f7c3)
+
+> Dont konw how the apple account got removed
+> 
+> [line removed: it mentioned credentials]
+> 
+> My name visible in team in target too now
+
+### 2026-11-25 19:05 · outcome
+
+**You're ready to go.** The sign-in works: Apple issued a fresh signing profile, and the iOS app is built and signed with it until **2 Dec 19:04 IST**. Both registered iPhones are still on it.
+
+- **Your friend's iPhone:** connect the Mac to a hotspot with internet, plug in and unlock the phone, then run:
+  ```
+  cd ~/Vikram/BallTracker && mobile/scripts/install_ios.sh
+  ```
+  It registers the phone, builds (under a minute today) and installs. Allow about 5 minutes for Trust, Developer Mode and the restart. Then trust the developer in **Settings > General > VPN & Device Management**.
+- **Your iPhone:** run the same command to install the latest build, which has the speech fix. With that phone plugged in, it takes no rebuild. Plug in one phone at a time.
+- **Android:** install `~/Desktop/BallTrackerCam-2026-11-25.apk` over the old app.
+
+The one step I couldn't test is registering the new phone itself, because that needs the phone on the cable. Apple could still refuse it if the device slot isn't actually free; if that happens, use the browser camera link.
+
+I don't know how the account got removed from Xcode. I didn't find a cause in what I checked.
