@@ -3,6 +3,7 @@
 #
 #   mobile/scripts/install_ios.sh            # the iPhone on the cable (asks if there are several)
 #   mobile/scripts/install_ios.sh <udid>     # a specific one
+#   mobile/scripts/install_ios.sh --build    # build even if the last build could be installed as it is
 #
 # A new iPhone takes about 2-4 minutes: Trust this Mac, turn on Developer Mode (the phone restarts),
 # the phone is added to the signing profile (the Mac needs internet for that), build, install.
@@ -24,6 +25,7 @@ for x in json.load(open(sys.argv[1]))["result"]["devices"]:
 EOF
 }
 
+FORCE=""; if [ "${1:-}" = "--build" ]; then FORCE=1; shift; fi
 UDID="${1:-}"
 if [ -z "$UDID" ]; then
   WIRED="$(devices | awk -F'\t' '$4=="wired"')"
@@ -48,18 +50,45 @@ if [ "$(row | cut -f5)" != "enabled" ]; then
   echo "   Developer Mode is on. Unlock the phone."
 fi
 
-echo ">> Building (adds this iPhone to the signing profile)..."
-LOG="$TMP/build.log"
-if ! xcodebuild -workspace "$MOBILE/ios/BallTrackerCam.xcworkspace" -scheme BallTrackerCam -configuration Release \
-    -destination "id=$UDID" -allowProvisioningUpdates -allowProvisioningDeviceRegistration \
-    COCOAPODS_PARALLEL_CODE_SIGN=true COMPILER_INDEX_STORE_ENABLE=NO build >"$LOG" 2>&1; then
-  grep -E "error:|❌" "$LOG" | sort -u | head -10
-  echo "Build failed (full log above). If it mentions the device limit: a free Apple ID can only"
-  echo "sign a few devices; remove an old one in Xcode > Settings > Accounts, or use the web link."
-  exit 1
+latest_app() { ls -dt ~/Library/Developer/Xcode/DerivedData/BallTrackerCam-*/Build/Products/Release-iphoneos/BallTrackerCam.app 2>/dev/null | head -1 || true; }
+
+# The last build can be installed as it is (no build, no internet) if it is signed for this iPhone,
+# the signing is still valid in an hour, and no app source changed since.
+ready_to_install() {
+  local app="$1" newer
+  [ -f "$app/embedded.mobileprovision" ] && codesign --verify --strict "$app" 2>/dev/null || return 1
+  security cms -D -i "$app/embedded.mobileprovision" >"$TMP/p.plist" 2>/dev/null || return 1
+  python3 - "$TMP/p.plist" "$UDID" <<'EOF' || return 1
+import datetime, plistlib, sys
+p = plistlib.load(open(sys.argv[1], "rb"))
+left = p["ExpirationDate"] - datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+sys.exit(not (sys.argv[2] in p.get("ProvisionedDevices", []) and left > datetime.timedelta(hours=1)))
+EOF
+  newer="$(find "$MOBILE/App.tsx" "$MOBILE/index.ts" "$MOBILE/app.json" "$MOBILE/package-lock.json" "$MOBILE/src" "$MOBILE/modules" \
+    "$MOBILE/ios/BallTrackerCam" "$MOBILE/ios/BallTrackerCam.xcodeproj/project.pbxproj" "$MOBILE/ios/Podfile.lock" \
+    -type f -newer "$app/main.jsbundle" -not -name .DS_Store -not -path "*/modules/*/android/*" -not -path "*/modules/*/node_modules/*")"
+  [ -z "$newer" ] && return 0
+  echo "   Sources changed since the last build, for example ${newer%%$'\n'*}"
+  return 1
+}
+
+APP="$(latest_app)"
+if [ -z "$FORCE" ] && ready_to_install "$APP"; then
+  echo ">> The last build is signed for this iPhone and up to date: installing it without building."
+else
+  echo ">> Building (adds this iPhone to the signing profile)..."
+  LOG="$TMP/build.log"
+  if ! xcodebuild -workspace "$MOBILE/ios/BallTrackerCam.xcworkspace" -scheme BallTrackerCam -configuration Release \
+      -destination "id=$UDID" -allowProvisioningUpdates -allowProvisioningDeviceRegistration \
+      COCOAPODS_PARALLEL_CODE_SIGN=true COMPILER_INDEX_STORE_ENABLE=NO build >"$LOG" 2>&1; then
+    grep -E "error:|❌" "$LOG" | sort -u | head -10
+    echo "Build failed (full log above). If it mentions the device limit: a free Apple ID can only"
+    echo "sign a few devices; remove an old one in Xcode > Settings > Accounts, or use the web link."
+    exit 1
+  fi
+  APP="$(grep -m1 -oE 'CODESIGNING_FOLDER_PATH\\?=.*/BallTrackerCam\.app' "$LOG" | sed -E 's/.*=//')"
+  [ -d "$APP" ] || APP="$(ls -dt ~/Library/Developer/Xcode/DerivedData/BallTrackerCam-*/Build/Products/Release-iphoneos/BallTrackerCam.app | head -1)"
 fi
-APP="$(grep -m1 -oE 'CODESIGNING_FOLDER_PATH\\?=.*/BallTrackerCam\.app' "$LOG" | sed -E 's/.*=//')"
-[ -d "$APP" ] || APP="$(ls -dt ~/Library/Developer/Xcode/DerivedData/BallTrackerCam-*/Build/Products/Release-iphoneos/BallTrackerCam.app | head -1)"
 
 echo ">> Installing (keep the phone unlocked)..."
 until xcrun devicectl device install app --device "$UDID" "$APP" >"$TMP/inst.log" 2>&1; do
