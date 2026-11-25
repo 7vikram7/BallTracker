@@ -2381,3 +2381,8 @@ At 20 in wide your scale is 1:12 (a real court is 20 ft by 44 ft):
 When you click points for calibration, click where the outer edges of the tapes meet.
 
 If you send me the final measurements and tape width, I'll write the court file.
+
+## 2026-11-25 18:47 · request (session 1661f7c3)
+
+> Will be playing today in half an hour
+> Can you create updated Android apk and check if iOS code is compiled so that it quickly installs on my friends phone on the court
