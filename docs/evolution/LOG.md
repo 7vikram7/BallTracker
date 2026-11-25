@@ -2386,3 +2386,39 @@ If you send me the final measurements and tape width, I'll write the court file.
 
 > Will be playing today in half an hour
 > Can you create updated Android apk and check if iOS code is compiled so that it quickly installs on my friends phone on the court
+
+## 2026-11-25 18:55 · request (session 1661f7c3)
+
+> just a note, my phones friend is not registered
+> But my profile has space for one more device
+
+### 2026-11-25 18:56 · outcome
+
+The APK is ready and the iOS app is built and signed. **Your friend's iPhone can't be registered until you sign in to Xcode again.**
+
+**Do this now, at home (about 2 minutes):**
+1. In Xcode, which is now open, go to **Settings > Accounts > + > Apple Account** and sign in with **the same Apple account as before**. A different one won't have your team or your free device slot.
+2. Check that your Personal Team is listed there, then tell me "done". I'll rerun the check with Apple's server, which also should renew your signing beyond 27 Nov.
+
+**Android**
+- The file is `~/Desktop/BallTrackerCam-2026-11-25.apk`.
+- The app code hasn't changed since 22 Nov, so this is the same build as that night's. It includes the speech fixes, and is newer than the 22 Nov APK on your Desktop.
+- It has the same signature, so it installs over the old app.
+- The speech fixes still haven't been tried on a real phone, on Android or iOS.
+
+**iPhone**
+- **Your phone and the already registered iPhone 16:** signed until 27 Nov 20:40 IST. I changed `install_ios.sh` to install this build without rebuilding, but haven't tried it on a phone yet.
+- **Your friend's phone:** it isn't registered, so the script has to register it and build once. The build itself took about 1 minute here; allow 5 minutes in all. If Xcode needs to prepare for a different iOS version, it could take longer.
+
+**At the court, for your friend's phone:**
+1. Put the Mac on a hotspot with internet. Bring a **data cable** that fits the phone.
+2. Plug in and unlock the phone, then run:
+   ```
+   cd ~/Vikram/BallTracker && mobile/scripts/install_ios.sh
+   ```
+3. On the phone, tap **Trust** and enter the passcode. When the script asks, turn on **Settings > Privacy & Security > Developer Mode**; the phone restarts.
+4. After the install, go to **Settings > General > VPN & Device Management** and trust the developer. The phone needs internet for this.
+
+If your friend can get to you before you leave, do this at home instead. If it fails at the court, use the browser camera link on that phone.
+
+The Python tests are still running. Today's only code change is the iPhone install script.
