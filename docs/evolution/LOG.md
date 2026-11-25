@@ -2472,3 +2472,27 @@ cd ~/Vikram/BallTracker && caffeinate -dims .venv/bin/bt serve --record
 3. Start the server last, because the QR code uses the Mac's network address at that moment. If you switch networks later, restart the server.
 
 To finish, press **Stop session** on the dashboard, then Ctrl+C in the terminal.
+
+## 2026-11-25 20:03 · request (session 1661f7c3)
+
+> not able to find developer mode on friends phone
+
+### 2026-11-25 20:04 · outcome
+
+The Mac doesn't see your friend's iPhone on the cable at all right now. Developer Mode stays hidden on an iPhone until it has been connected to a Mac with Xcode and trusted.
+
+1. **Plug in with a data cable.** The cable you used for your iPhone 17 works. Plug it straight into the Mac with no hub, and unlock the phone.
+2. **Tap Allow / Trust** on the phone (the wording may be "Allow accessory to connect" or "Trust This Computer") and enter the passcode. If nothing pops up, unplug, unlock and plug in again. Click Allow on the Mac too if it asks.
+3. **In a second terminal window**, leaving the server running:
+   ```
+   cd ~/Vikram/BallTracker && mobile/scripts/install_ios.sh
+   ```
+   If it says "No iPhone on the cable", the cable or the Allow/Trust step is the problem.
+4. When it says it's waiting for Developer Mode, **force-close Settings on the phone and reopen it**. Go to **Privacy & Security** and scroll to the bottom, under Security: **Developer Mode**.
+5. Turn it on, restart the phone, unlock it and tap **Turn On**, with the cable still in. The script then carries on by itself.
+
+**If Developer Mode still isn't there after Trust:** in Xcode, open **Window > Devices and Simulators** with the phone plugged in and select it. Wait a few seconds, then reopen Settings on the phone.
+
+**If this holds up play:** have your friend scan the dashboard's QR code and use the browser camera. It needs no install.
+
+Tell me once it's plugged in and I'll check whether the Mac sees it.
