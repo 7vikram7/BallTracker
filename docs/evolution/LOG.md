@@ -2536,3 +2536,52 @@ The motion trace shows three different behaviours:
 - **iPhone 17:** fairly stable at 14 px after 54 min, and followed automatically.
 
 Waiting on the replay comparison.
+
+### 2026-11-26 14:55 · outcome
+
+I've gone through yesterday's session, made three server fixes, and written a mount design. Everything is pushed (2b90108), with all 160 tests passing. The fixes are only in the server, so the phones need no reinstall; they haven't been tried in a live session yet.
+
+**How each camera moved** (measured from the snapshots taken every 2 s)
+- **Samsung:** it sagged slowly downwards (17 px after 20 min), then dropped another 73 px at minute 27. That's 4° of downward tilt: the head giving way under the phone's weight.
+- **iPhone 15 Pro:** it turned sideways in steps, ending 8° off. That's the clamp or holder turning around the bar when it was touched.
+- **iPhone 17:** fairly stable. It moved 14 px in 54 minutes, and the server corrected that automatically.
+
+One degree is about 23 px, and at the far baseline one degree of tilt moves a bounce by 1–3 m.
+
+**What that did to the calls**
+- **Moved cameras kept calling.** When a camera moved too far, the server warned "recalibrate" but kept using the old calibration:
+  - After the Samsung's drop, it and the iPhone 17 put the same bounce 1.5–1.6 m apart (9–20 cm before).
+  - The iPhone 15 Pro was 2.2–2.3 m off for its last 35 minutes.
+  - 21 OUTs were spoken in the first 27 minutes, but only 8 in the last 46. Four of those 8 involved a moved camera.
+- **The iPhone 17 called for 15 minutes on the wrong calibration.** It connected at minute 2 with a calibration saved from an earlier session that put it at the other end of the court (3–14 m off). All 9 OUTs it called alone before you calibrated it at minute 17 were based on that.
+- **The Samsung's battery died.** It started at 28% and died at minute 47, after running very hot from minute 25 and dropping to 30 fps.
+- Most of the 500 "uncertain" calls are fine. 300 were balls knocked about well outside the court between points, which the system ignores on purpose.
+
+**Server fixes**
+1. **A moved camera is taken out of the calls** until you recalibrate it or put it back, and the dashboard says so. This applies when it moves too far to correct automatically, or when its view hasn't matched its calibration for about 30 s.
+2. **A saved calibration is only used once the court lines confirm it.**
+3. **Bigger moves are now corrected automatically** when the court lines confirm the new position.
+
+**Replaying yesterday with the fixes**
+- The 9 wrong iPhone 17 OUTs and the 2 lone OUTs from the moved iPhone 15 Pro are gone.
+- The iPhone 15 Pro's 146 px turn was corrected automatically. Its 300 px turn wasn't, so it would have been out of the calls for the last 32 minutes: safe, but you'd lose that camera until you recalibrate it.
+- About 13 lone iPhone 17 OUTs would now be spoken that the miscalibrated iPhone 15 Pro used to veto. I can't tell whether they're right without someone noting the real calls.
+- The Samsung's figures change in the replay with or without the fixes. That comes from how the replay tool redoes the automatic corrections, so the replay doesn't show what the fixes do for the Samsung live.
+
+**Mount** (full design in `docs/MOUNTS.md`)
+
+The two failures need different fixes. Against sag: a ball head with a 30 mm+ ball, or a pan-tilt head with a lock for each direction, with the phone centred over it and a zip tie added as a second lock after aiming. Against turning: grip the bar in a V shape with screw tightening, using two clamps about 10 cm apart, and hold the phone in a screw-tightened holder, not a spring one.
+
+Two kits, sharing the same head and phone holder:
+- **Bars 13–55 mm, horizontal or vertical:** a super clamp. The Manfrotto 035 fits 13–55 mm and is rated for 15 kg; the cheaper SmallRig type fits 15–44 mm.
+- **Posts 40–150 mm, round or square:** a hardware-shop V-block. Take 120 mm of 40×40 mm aluminium angle and fix it to the post with two stainless hose clamps or ratchet straps, with a strip of inner tube underneath for grip. Put a 1/4" bolt through the middle for the head.
+
+**Where and how to mount**
+- Put the phones 2.2–3 m up on the vertical frame posts, away from the netting rails and from where players swing. The Samsung was low enough that a player's head and paddle filled its view.
+- Mark each spot with tape so the phone goes back in the same place.
+- Before play, push each phone gently and let go. The dashboard's drift reading should settle back under 3 px.
+- Tie the cables to the post, and give every phone a battery pack.
+
+**Not built yet:** an alert on the phones when a camera is taken out of the calls. During play nobody watches the dashboard, so this is the next step if you want it.
+
+Sources: [Manfrotto 035 at Wex](https://www.wexphotovideo.com/manfrotto-035-super-clamp-10994), [Manfrotto 035RL at B&H](https://www.bhphotovideo.com/c/product/546356-REG/Manfrotto_035RL_035RL_Super_Clamp_with.html), [SmallRig super clamp](https://smallrig.com/global/super-clamp-with-1-4-and-3-8-thread-735-2058.html)
