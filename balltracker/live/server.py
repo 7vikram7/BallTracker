@@ -138,7 +138,9 @@ class CamState:
     pairs: BouncePairs = field(default_factory=BouncePairs)  # bounces shared with the reference camera
     drift_ref: object = None  # geometry.drift.DriftReference of the frame the calibration was made on
     drift: dict = field(default_factory=dict)  # last drift check {"status", "moved_px", "t"}
-    excluded: int = 0  # bounce reports not judged (calibration not ready)
+    excluded: int = 0  # bounce reports not judged (calibration not ready, or camera moved)
+    suspended: str | None = None  # why the camera is out of the calls now (moved since calibration), or None
+    lost_checks: int = 0  # drift checks in a row that couldn't match the calibration frame
 
     def fps_in(self) -> float:
         a = self.arrivals
@@ -263,6 +265,7 @@ class LiveServer:
 
     def set_camera_model(self, cam: CamState, camera: Camera | None) -> None:
         cam.camera = camera
+        self._resume(cam, "recalibrated")
         if camera is not None:
             camera.save(self.calib_dir / f"{cam.name}.json")
             self._snapshot_calibration(cam)
@@ -277,10 +280,29 @@ class LiveServer:
             except queue_mod.Full:
                 log.warning("worker queue full; calibration for %s not delivered yet", cam.name)
 
+    def usable(self, cam: CamState | None) -> bool:
+        """Used for calls: calibrated well enough and not suspended (moved since calibration)."""
+        return cam is not None and calibration_ready(cam.camera) and cam.suspended is None
+
+    def _suspend(self, cam: CamState, reason: str) -> None:
+        if cam.suspended is not None:
+            return
+        cam.suspended = reason
+        self._log_event({"type": "camera_suspended", "camera": cam.name, "t": self.now(), "reason": reason})
+        self._update_coverage()
+
+    def _resume(self, cam: CamState, why: str) -> None:
+        cam.lost_checks = 0
+        if cam.suspended is None:
+            return
+        cam.suspended = None
+        self._log_event({"type": "camera_resumed", "camera": cam.name, "t": self.now(), "why": why})
+        self._update_coverage()
+
     def _update_coverage(self) -> None:
         try:
             self.coverage = coverage({c.name: c.camera for c in self.cams.values()
-                                      if c.connected and calibration_ready(c.camera)}, self.court)
+                                      if c.connected and self.usable(c)}, self.court)
         except Exception as e:  # pragma: no cover - never break calibration for the coverage map
             log.warning("coverage failed: %s", e)
 
@@ -356,7 +378,7 @@ class LiveServer:
         cam = self.cams.get(msg.get("camera", ""))
         if kind == "bounce":
             ev = BounceEvent.model_validate(msg["event"])
-            ready = cam is None or calibration_ready(cam.camera)
+            ready = cam is None or self.usable(cam)
             if ready:
                 self.judge.add(ev, self.now())
             elif cam is not None:
@@ -366,7 +388,7 @@ class LiveServer:
                    "std_cm": 100 * float(np.sqrt(max(np.trace(np.array(ev.cov_xy)) / 2, 0))),
                    "conf": ev.confidence, "delay_s": self.now() - ev.t, "event": msg["event"]}
             if not ready:
-                obj["excluded"] = f"calibration RMS above {MAX_RMS_PX:g} px"
+                obj["excluded"] = cam.suspended or f"calibration RMS above {MAX_RMS_PX:g} px"
             self._log_event(obj)
             self._broadcast_soon({k: v for k, v in obj.items() if k != "event"})
         elif kind == "ball" and cam is not None:
@@ -414,7 +436,7 @@ class LiveServer:
         return None if cam is None else camera_view(cam.camera, x, y)
 
     def expected_cameras(self) -> set[str]:
-        return {c.name for c in self.cams.values() if c.connected and calibration_ready(c.camera)}
+        return {c.name for c in self.cams.values() if c.connected and self.usable(c)}
 
     def _decision_obj(self, d: Decision) -> dict:
         return decision_dict(d, self.now() - d.bounce.t)
@@ -459,10 +481,18 @@ class LiveServer:
                 if cam.drift_ref is None:
                     # A calibration from an earlier session (no reference frame): snap it to the lines
                     # in case the phone was put back slightly differently, then follow from this frame.
-                    snapped = await loop.run_in_executor(None, auto_snap, img, self.court, camera)
-                    if snapped and cam.camera is camera:
-                        self._apply_auto(cam, snapped["camera"], snapped["points"], "lines (auto, at start)",
-                                         {k: snapped[k] for k in ("moved_px", "fit_px", "lines")})
+                    # If the lines don't confirm it, it is not used for calls (field test 5: the iPhone
+                    # called for 15 minutes on a saved calibration that put it at the other end of the
+                    # court, 3-14 m off); the snap is retried at every check until it fits or the
+                    # camera is calibrated.
+                    snapped = await loop.run_in_executor(None, auto_snap, img, self.court, camera, 0.0)
+                    if cam.camera is not camera:
+                        continue
+                    if not snapped:
+                        self._suspend(cam, "calibration from an earlier session, not confirmed by the court lines")
+                        continue
+                    self._apply_auto(cam, snapped["camera"], snapped["points"], "lines (auto, at start)",
+                                     {k: snapped[k] for k in ("moved_px", "fit_px", "lines")})
                     cam.drift_ref = await loop.run_in_executor(
                         None, DriftTracker, img, cam.cal_points or visible_keypoints(cam.camera, self.court))
                     continue
@@ -475,6 +505,7 @@ class LiveServer:
                     continue  # recalibrated meanwhile
                 prev = cam.drift.get("status")
                 cam.drift = {"status": res["status"], "moved_px": res.get("moved_px"), "t": self.now()}
+                self._suspend_if_moved(cam, res)
                 if res["status"] == "moved":
                     self._apply_auto(cam, res["camera"], res["points"], "drift",
                                      {"moved_px": res["moved_px"], "total_px": res["total_px"], "how": res["how"],
@@ -489,6 +520,24 @@ class LiveServer:
                                      "drift": res["status"]})
                     await self._broadcast({"type": "warning", "camera": cam.name, "text": text})
 
+    LOST_CHECKS_TO_SUSPEND = 3  # ~30 s of a view that doesn't match (a player in front passes sooner)
+
+    def _suspend_if_moved(self, cam: CamState, res: dict) -> None:
+        """A camera that moved more than the drift check could follow is out of the calls until it is
+        recalibrated or back where it was: its old calibration puts bounces in the wrong place (field
+        test 5: 1.5-2.5 m for the rest of the session)."""
+        st = res["status"]
+        if st != "lost":
+            cam.lost_checks = 0
+        if st == "big":
+            self._suspend(cam, f"moved {res.get('moved_px')} px since calibration")
+        elif st == "lost":
+            cam.lost_checks += 1
+            if cam.lost_checks >= self.LOST_CHECKS_TO_SUSPEND:
+                self._suspend(cam, "view doesn't match its calibration frame")
+        elif st in ("steady", "moved"):  # not "pending": moved, not yet followed
+            self._resume(cam, "back where it was" if st == "steady" else "followed")
+
     def warnings(self) -> list[dict]:
         """Problems the operator should fix, most important first (dashboard banner)."""
         out = []
@@ -502,9 +551,10 @@ class LiveServer:
                             "text": f"{c.name}: calibration too rough ({c.camera.reprojection_rms_px:.1f} px, "
                                     f"needs ≤ {MAX_RMS_PX:g}): not used for calls. Recalibrate (Snap to lines)."})
             st = (c.drift or {}).get("status")
-            if st == "big":
+            if st == "big" or c.suspended:
                 out.append({"level": "bad", "camera": c.name,
-                            "text": f"{c.name}: moved a lot since calibration. Recalibrate."})
+                            "text": f"{c.name}: moved since calibration ({c.suspended or 'a lot'}): not used for "
+                                    "calls. Recalibrate, or put it back."})
             elif st == "lost":
                 out.append({"level": "warn", "camera": c.name,
                             "text": f"{c.name}: image doesn't match its calibration frame (covered? moved?)"})
@@ -539,7 +589,7 @@ class LiveServer:
                 "latency_ms": c.stats.get("latency_ms"), "bounces": c.stats.get("bounces"),
                 "worker_alive": bool(c.proc and c.proc.is_alive()), "phone": c.phone_stats,
                 "cands_per_frame": c.stats.get("cands_per_frame"), "max_tracks": c.stats.get("max_tracks"),
-                "mode": c.mode, "app": c.app, "ready": calibration_ready(c.camera), "drift": c.drift,
+                "mode": c.mode, "app": c.app, "ready": self.usable(c), "suspended": c.suspended, "drift": c.drift,
                 "excluded": c.excluded, "deferred_frames": c.stats.get("deferred_frames"),
                 "dropped_stale": c.stats.get("dropped_stale"), "hit_rate": self.judge.recall.summary(c.name),
             })

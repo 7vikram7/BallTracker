@@ -40,6 +40,7 @@ describes the design.
 
 | where | what | use it for |
 |---|---|---|
+| `data/field/20261125-194731/` | **Field test 5**, full court, 73 min, indoor hall: iPhone 17, Samsung, iPhone 15 Pro (all app, 1080p). Two phones moved on their mounts. `motion/` has every snapshot's camera motion against its calibration (`scripts/camera_motion.py`); `counterfactual_calibrations.jsonl` is what the updated server's calibration upkeep would have used. | Camera motion and its effect on calls (decision log 34). `bt replay data/field/20261125-194731 --calibrations data/field/20261125-194731/counterfactual_calibrations.jsonl` |
 | `data/field/20261119-070916/` | **Field test 2**, full court, about 1 h: iPhone 17 (120 fps app) and Samsung (app), both calibrated, plus a Redmi (browser, 12 fps). Every frame's detections (`dets.jsonl.gz`), all events, the 605 live decisions, and a replay. | The main real dataset. `bt replay data/field/20261119-070916` re-runs the whole pipeline on it with the current code. |
 | `data/field/20261119-054644/`, `-062435/` | Short iPhone-only runs the same morning (detections, no calibration). | Detector and tracking behaviour; clutter. |
 | `data/field/20261118-204119/` | Redmi (budget Android) for 1 min. | What a weak phone produces. |

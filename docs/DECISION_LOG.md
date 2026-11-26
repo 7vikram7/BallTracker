@@ -1233,7 +1233,105 @@ multiply-adds with the app flags (10 without) for iOS and Android.
 
 ---
 
-## Current roadmap (as of 2026-11-22)
+## 34. Field test 5: the cameras kept moving; a moved camera is out of the calls (2026-11-26)
+
+**Request.** Analyse yesterday's session in detail and learn from it. The cameras kept moving;
+a sturdy mount is needed that fits horizontal and vertical bars of various widths.
+
+**Session** (`20261125-194731`, 73 min, code 3e96b4f, `bt serve --record`, indoor hall with a steel
+frame). iPhone 17 (1080p, 120 fps), Samsung S948B (1080p, asked 120, delivered 30-60), iPhone 15 Pro
+(1080p, 120, joined at minute 25). All app phones. 1 321 decisions (405 seen by 2+ cameras), 29
+spoken (26 OUT, 3 FAULT), 68 serves recognised; bounce → call median 1.27 s.
+
+**How the cameras moved** (`scripts/camera_motion.py`: every 2 s snapshot registered against the
+frame of the last hand calibration, 150+ background matches required, 5-snapshot median; output in
+`data/field/20261125-194731/motion/`).
+* Samsung: tilted down slowly (5 px after 5 min, 7 after 10, 17 after 20), then dropped 73 px at
+  minute 27; 4° of tilt in all. A friction joint giving way under the phone's weight.
+* iPhone 15 Pro: turned sideways in steps (45, 200, 238 px), 8° of pan at the end. Clamp or holder
+  turning around the bar when touched.
+* iPhone 17: 14 px after 54 min, followed by 13 automatic corrections.
+At 1080p 1° is about 23 px; at the far baseline 1° of tilt moves a bounce 1-3 m.
+
+**What it did to the calls** (two cameras' reports of the same bounce, within 80 ms, live log):
+* Samsung vs iPhone 17: 9-20 cm until the drop, 150-162 cm after it (the drift check flagged
+  "moved 122.9 px: recalibrate" and kept using the old calibration).
+* iPhone 15 Pro vs iPhone 17: 2.2-2.3 m for its last 35 minutes (flagged at "moved 101 px").
+* 21 OUTs were spoken in the first 27 minutes, 8 in the last 46; 4 of those 8 involved a moved
+  camera, 2 of them that camera alone (2587 s, 3844 s: 289 and 169 cm out).
+* **The iPhone 17 called for 15 minutes on the wrong calibration.** It connected at minute 2 with a
+  calibration saved in an earlier session that put it at the other end of the court (3-14 m off)
+  and was calibrated by hand only at minute 17. The drift check said it couldn't match the
+  calibration frame (a person was standing in front of it when the reference was taken) but the
+  calibration stayed in use: all 9 of its lone OUTs in that window (627-1053 s) came from it.
+* Not a problem: 300 of the 500 UNCERTAIN were bounces 1-2.5 m out at "start of play" (balls
+  knocked about between points), silent by design.
+* Phones: the Samsung started at 28% battery and died at minute 47; it was "critical" hot from
+  minute 25 and fell from 57 to 30 fps. Both iPhones held 120 fps capture ("serious" heat).
+
+**Changes.**
+1. **A moved camera is out of the calls** (`server._suspend_if_moved`): drift status "big", or 3
+   checks in a row (~30 s) without a match, takes the camera out of the judging and the expected
+   cameras until it is recalibrated, followed, or back where it was. Logged as `camera_suspended` /
+   `camera_resumed`; the dashboard says "not used for calls. Recalibrate, or put it back."; the
+   replay follows the log (`replay.suspended_intervals`).
+2. **A saved calibration must be confirmed by the lines** (`server._drift_loop`, `upkeep.auto_snap`
+   with `min_move_px=0`): a calibration from an earlier session is used only once the court lines
+   confirm it; the snap is retried at every check.
+3. **Big moves the lines confirm are followed** (`drift.DriftTracker`): a change of more than 80 px
+   is followed if the background matches well (150+ inliers) and the line snap lands within 10 px
+   of the moved points; otherwise "big" (and change 1 applies).
+4. Tools: `scripts/camera_motion.py`; `counterfactual_calibration.py --live-clicks` (re-runs only
+   the drift checks on live's own calibrations), `--no-scrub`, and the new rules; `load_session`
+   refuses a calibration history that names cameras the session doesn't have (a scrubbed file
+   replayed against the local session was silently ignored: it cost me two wrong runs).
+
+**Replayed** (counterfactual `--live-clicks` with the new rules, then replay; against the same tool
+with the old drift behaviour as a control, so tool differences cancel):
+
+| | live | control (old rules) | new rules |
+|---|---|---|---|
+| spoken calls | 29 | 28 | 26 |
+| iPhone 15 Pro vs iPhone 17 after minute 40 | 2.2-2.3 m | 2.4-2.5 m | camera out of the calls |
+| Samsung vs iPhone 17, minutes 30-47 | 150-162 cm | 36-40 cm | 38-40 cm |
+
+* Gone with the new rules: the 9 iPhone 17 OUTs on the other-end calibration (it is out of the
+  calls from minute 2 to its calibration at minute 17), and the 2 lone OUTs of the turned iPhone 15
+  Pro. Added: 13 calls, mostly lone iPhone 17 OUTs in the second half that the miscalibrated iPhone
+  15 Pro used to veto. Whether they are right is unknown (no ground truth).
+* The Samsung's numbers move with the tool, not with the change (control = new): the
+  counterfactual takes its drift reference from a different frame than live did, and followed the
+  drop. So the Samsung row doesn't show what the new rules do live.
+* The iPhone 15 Pro's 146 px turn was followed (lines confirmed); its 300 px turn was not and the
+  camera stayed out for the last 32 minutes. In an earlier counterfactual run (re-snapped clicks)
+  the same turn was confirmed and the camera agreed with the iPhone 17 to 5-10 cm. Following big
+  moves helps sometimes; taking the camera out is what makes it safe.
+* Outputs (scrubbed): `data/field/20261125-194731/counterfactual_calibrations.jsonl`.
+
+**Mounts** ([MOUNTS.md](MOUNTS.md)). The two failures need different fixes: no friction joint
+that sags (big ball head, or pan-tilt with separate locks, phone centred over it, a second lock
+after aiming) and no clamp that turns on a round bar (V contact, screw-tightened, two clamps 10 cm
+apart). Two kits that share the head and phone clamp: a super clamp for bars of 13-55 mm, and a
+V-block of aluminium angle with two hose clamps or ratchet straps for posts of 40-150 mm, either
+orientation. Mount high on vertical posts, away from netting and swings; mark the spot; a wiggle
+test before play; cables tied down; battery packs.
+
+**Checked.** New tests: a confirmed 6° turn is followed (median error < 1.5 px); a camera that
+moved is out until recalibrated, out after 30 s without a match, back when steady, and the log
+gives the replay the same intervals; a saved calibration is confirmed only where it fits; the
+replay refuses a mismatched calibration history (fails without the guard). 160 Python tests pass.
+
+---
+
+## Current roadmap (as of 2026-11-26)
+
+**Now (from field test 5, entry 34)**
+* Mounts that don't sag or turn ([MOUNTS.md](MOUNTS.md)): build kit B (V-block) for the posts, a
+  super clamp kit for thin bars; wiggle test before play. Check the next session's motion with
+  `scripts/camera_motion.py`: under 5 px between drift corrections, no steps.
+* A spoken or vibrating alert on the phones when a camera is taken out of the calls, so it is
+  recalibrated during play (the dashboard alone isn't watched).
+* Battery packs on every phone; the server warns below 30% at the start.
 
 **Now (from field test 4, entries 30-31; see STUDY_2026-11-22.md)**
 * Measure every session: a person taps the real calls (logger to build), plus 10 chalk marks

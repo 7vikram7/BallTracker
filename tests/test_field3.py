@@ -183,6 +183,8 @@ def test_drift_tracker_follows_a_small_turn_and_waits_for_confirmation():
     assert np.allclose(res["points"][k], [pts[k][0] + 7.0, pts[k][1] - 3.0], atol=0.6)
     # the same position again: steady (compared with the original frame, nothing accumulates)
     assert tr.check(_scene((7.0, -3.0)), COURT, res["camera"], snap=False)["status"] == "steady"
+    # a big move: confirmed on a second check, then flagged (no court lines here to confirm it)
+    assert tr.check(_scene((150.0, 0.0)), COURT, res["camera"], snap=False)["status"] in ("pending", "big", "lost")
     assert tr.check(_scene((150.0, 0.0)), COURT, res["camera"], snap=False)["status"] in ("big", "lost")
 
 
@@ -359,3 +361,105 @@ def test_strict_veto_restores_the_old_rule():
         _feed(j, _plain(1.0 + 3 * k, 0.0, 2.0 if k % 2 else -2.0, ["c1", "c2"]))
     d = _feed(j, _plain(100.0, 0.5, hl + 0.4, ["c1"]))[0]
     assert not d.call.announce and d.diagnostics["unconfirmed_by"] == ["weak"]
+
+
+def _textured_court(preset="corner_high"):
+    """A synthetic court frame with a textured fence above it (background features to match)."""
+    import cv2
+
+    from balltracker.synthetic import SynthConfig, build_scene, frames
+
+    scene = build_scene(SynthConfig(fps=30, width=1280, height=720, n_shots=1, seed=3, camera_preset=preset))
+    img = next(iter(frames(scene)))[2].copy()
+    rng = np.random.default_rng(1)
+    h, w = img.shape[:2]
+    for _ in range(700):
+        c = tuple(int(v) for v in rng.integers(30, 255, 3))
+        cv2.circle(img, (int(rng.integers(0, w)), int(rng.integers(0, h // 4))), int(rng.integers(3, 12)), c, -1)
+    scene.camera.reprojection_rms_px = 0.5
+    return scene, img
+
+
+def _panned(cam: Camera, img, deg: float):
+    import cv2
+
+    a = np.deg2rad(deg)
+    Rp = np.array([[np.cos(a), 0, np.sin(a)], [0, 1, 0], [-np.sin(a), 0, np.cos(a)]])
+    H = cam.K @ Rp @ np.linalg.inv(cam.K)
+    moved = Camera(K=cam.K, dist=cam.dist, R=Rp @ cam.R, t=Rp @ cam.t, image_size=cam.image_size)
+    return cv2.warpPerspective(img, H, (img.shape[1], img.shape[0])), moved
+
+
+def test_a_big_turn_confirmed_by_the_court_lines_is_followed():
+    """Field test 5 (2026-11-25): two phones turned 100-400 px on their mounts; beyond 80 px the drift
+    check only warned, and the old calibrations put bounces 1.5-2.5 m off for the rest of the session.
+    A big turn is now followed when the background matches well and the painted lines confirm it."""
+    from balltracker.geometry.crosscal import visible_keypoints
+    from balltracker.geometry.drift import DriftTracker
+
+    scene, img = _textured_court()
+    cam, kp = scene.camera, scene.court.keypoints()
+    img1, moved = _panned(cam, img, 6.0)  # ~120 px at 1280 wide
+    tr = DriftTracker(img, visible_keypoints(cam, scene.court))
+    assert tr.check(img1, scene.court, cam)["status"] == "pending"
+    res = tr.check(img1, scene.court, cam)
+    assert res["status"] == "moved" and res["moved_px"] > 100 and "line snap" in res["how"]
+    err = [np.hypot(*(np.array(p) - moved.project(np.array([kp[k]]))[0])) for k, p in res["points"].items()]
+    assert np.median(err) < 1.5, err
+    assert tr.check(img1, scene.court, res["camera"])["status"] == "steady"
+    # a big change the lines can't confirm (no court lines in view) is not followed
+    from balltracker.geometry.drift import DriftConfig
+
+    tr2 = DriftTracker(_scene(), visible_keypoints(cam, scene.court), DriftConfig(min_inliers=40))
+    assert tr2.check(_scene((150.0, 0.0)), scene.court, cam)["status"] in ("big", "lost", "pending")
+    assert tr2.check(_scene((150.0, 0.0)), scene.court, cam)["status"] in ("big", "lost")
+
+
+def test_a_camera_that_moved_too_far_is_out_of_the_calls_until_it_is_recalibrated(tmp_path):
+    """The live server used to warn and keep judging with the old calibration (field test 5)."""
+    import json
+
+    from balltracker.live.replay import suspended_intervals
+    from balltracker.live.server import CamState, LiveServer
+
+    srv = LiveServer(COURT, tmp_path)
+    cam = CamState("c1")
+    cam.connected = True
+    cam.camera = Camera.look_at(position=[-4.6, -9.5, 2.4], target=[0.0, 0.0, 0.0], image_size=(1280, 720), hfov_deg=70)
+    cam.camera.reprojection_rms_px = 0.8
+    srv.cams["c1"] = cam
+    assert srv.expected_cameras() == {"c1"}
+    srv._suspend_if_moved(cam, {"status": "big", "moved_px": 122.9})
+    assert srv.expected_cameras() == set() and not srv.usable(cam)
+    assert any("not used for calls" in w["text"] for w in srv.warnings())
+    srv._suspend_if_moved(cam, {"status": "pending"})  # moved, not followed: still out
+    assert not srv.usable(cam)
+    srv.set_camera_model(cam, cam.camera)  # recalibrated
+    assert srv.usable(cam)
+    for _ in range(2):  # a player in front for 20 s: still used
+        srv._suspend_if_moved(cam, {"status": "lost"})
+    assert srv.usable(cam)
+    srv._suspend_if_moved(cam, {"status": "lost"})  # 30 s without a match: out
+    assert not srv.usable(cam)
+    srv._suspend_if_moved(cam, {"status": "steady"})  # back where it was
+    assert srv.usable(cam)
+    srv.events_f.flush()
+    ev = [json.loads(x) for x in (srv.session_dir / "events.jsonl").read_text().splitlines()]
+    spans = suspended_intervals(ev, "c1")
+    assert len(spans) == 2 and all(a < b for a, b in spans)
+
+
+def test_a_saved_calibration_is_confirmed_by_the_lines_only_if_it_fits():
+    """Field test 5: the iPhone connected with a calibration from an earlier session that put it at
+    the other end of the court and called for 15 minutes with it. At the start the server now uses a
+    saved calibration only if the painted lines confirm it (auto_snap with min_move_px=0)."""
+    from balltracker.live.upkeep import auto_snap
+
+    scene, img = _textured_court()
+    cam = scene.camera
+    assert auto_snap(img, scene.court, cam, 0.0) is not None  # put back where it was: confirmed
+    p = cam.position
+    other_end = Camera.look_at(position=[-p[0], -p[1], p[2]], target=[0.0, 0.0, 0.0], image_size=cam.image_size,
+                               hfov_deg=60)
+    other_end.reprojection_rms_px = 0.1
+    assert auto_snap(img, scene.court, other_end, 0.0) is None

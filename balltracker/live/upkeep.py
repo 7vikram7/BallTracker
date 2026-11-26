@@ -39,13 +39,15 @@ def calibration_ready(camera: Camera | None, max_rms_px: float = MAX_RMS_PX) -> 
     return rms is not None and math.isfinite(rms) and rms <= max_rms_px
 
 
-def auto_snap(img: np.ndarray, court: CourtSpec, camera: Camera) -> dict | None:
+def auto_snap(img: np.ndarray, court: CourtSpec, camera: Camera, min_move_px: float = 1.0) -> dict | None:
     """Snap the calibration to the painted lines; return the improved calibration if the snap is
-    convincing: {"camera", "points", "moved_px", "fit_px", "lines"}, else None."""
+    convincing: {"camera", "points", "moved_px", "fit_px", "lines"}, else None. With
+    ``min_move_px=0`` a calibration that already fits is returned too (re-fitted to the snapped
+    points): None then means the lines don't confirm it."""
     from ..geometry.crosscal import resnap_proposal
 
     try:
-        prop = resnap_proposal(img, court, camera, min_move_px=1.0)
+        prop = resnap_proposal(img, court, camera, min_move_px=min_move_px)
     except Exception:  # pragma: no cover - a snap failure never breaks calibration
         return None
     if not prop:

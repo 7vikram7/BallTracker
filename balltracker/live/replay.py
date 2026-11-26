@@ -57,9 +57,9 @@ def read_events(session: Path) -> list[dict]:
 
 
 def load_session(session: Path | str, calibrations: Path | str | None = None) -> dict:
-    """``calibrations``: a JSONL file of ``calibrated`` events that replaces the session's own
-    calibration history (a counterfactual: what a newer server's calibration upkeep would have
-    used; see scripts/counterfactual_calibration.py)."""
+    """``calibrations``: a JSONL file of ``calibrated`` events (and ``camera_suspended`` /
+    ``camera_resumed``) that replaces the session's own calibration history (a counterfactual: what
+    a newer server's calibration upkeep would have used; see scripts/counterfactual_calibration.py)."""
     session = Path(session)
     if not (session / "court.json").exists():
         raise FileNotFoundError(f"{session} is not a session folder (no court.json)")
@@ -67,7 +67,8 @@ def load_session(session: Path | str, calibrations: Path | str | None = None) ->
     events = read_events(session)
     if calibrations is not None:
         sub = [json.loads(line) for line in Path(calibrations).read_text().splitlines() if line.strip()]
-        events = [e for e in events if e.get("type") != "calibrated"] + [e for e in sub if e.get("type") == "calibrated"]
+        kinds = {"calibrated", "camera_suspended", "camera_resumed"}
+        events = [e for e in events if e.get("type") not in kinds] + [e for e in sub if e.get("type") in kinds]
     manifest = json.loads((session / "session.json").read_text()) if (session / "session.json").exists() else None
     last_calib = {e["camera"]: e["camera_model"] for e in events if e.get("type") == "calibrated" and e.get("camera_model")}
     cams = {}
@@ -106,8 +107,14 @@ def load_session(session: Path | str, calibrations: Path | str | None = None) ->
         # and their judge replay keeps the last calibration throughout (as before)
         logged = bool(con) and all("camera_model" in e for e in con)
         cams[d.name] = {"kind": kind, "dir": d, "camera": cam, "regularize_time": regularize,
+                        "suspended": suspended_intervals(events, d.name),
                         "timeline": sorted(timeline, key=lambda a: a[0]), "ctl": ctl,
                         "mac_detector": mac_detector, "fps": fps, "online": online if logged else None}
+    if calibrations is not None:
+        unknown = sorted({e.get("camera") for e in sub if e.get("type") == "calibrated"} - set(cams))
+        if unknown:  # e.g. a scrubbed file (device names) against a local session (its own names)
+            raise ValueError(f"{calibrations} names cameras this session doesn't have: {unknown} "
+                             f"(session cameras: {sorted(cams)})")
     contexts = [(e["t"], e["context"]) for e in events if e.get("type") == "context"]
     # match (serves recognised) or drill: the mode at the start, then every change
     start_mode = ((manifest or {}).get("settings") or {}).get("play_mode", "match")
@@ -146,6 +153,26 @@ def _iter_browser(folder: Path):
                 yield int(row["seq"]), float(row["t_session"]), img
 
 
+def suspended_intervals(events: list[dict], name: str) -> list[tuple[float, float]]:
+    """When the live server had the camera out of the calls because it moved since calibration
+    (``camera_suspended`` .. ``camera_resumed``; a new calibration also resumes it)."""
+    out, t0 = [], None
+    for e in sorted((e for e in events if e.get("camera") == name), key=lambda e: float(e.get("t") or 0)):
+        ty = e.get("type")
+        if ty == "camera_suspended" and t0 is None:
+            t0 = float(e["t"])
+        elif ty in ("camera_resumed", "calibrated") and t0 is not None:
+            out.append((t0, float(e["t"])))
+            t0 = None
+    if t0 is not None:
+        out.append((t0, float("inf")))
+    return out
+
+
+def _within(spans, t: float) -> bool:
+    return any(a <= t < b for a, b in spans)
+
+
 def camera_reports(name: str, info: dict, court: CourtSpec, detector_overrides: dict | None = None,
                    max_rms_px: float | None = None) -> list[BounceEvent]:
     """Run one camera's recording through the streaming pipeline; return its bounce reports."""
@@ -173,6 +200,7 @@ def camera_reports(name: str, info: dict, court: CourtSpec, detector_overrides: 
     defers = sorted((int(e["seq"]), bool(e["on"])) for e in ctl if e.get("op") == "defer")
     flushes = {int(e["seq"]) for e in ctl if e.get("op") == "flush"}
     di = 0
+    cur = [float("-inf")]  # session time of the frame being processed
     gaps: list[tuple[float, float]] = []
     span = [float("inf"), float("-inf")]
 
@@ -182,13 +210,14 @@ def camera_reports(name: str, info: dict, court: CourtSpec, detector_overrides: 
                 gaps.append((float(o["t0"]), float(o["t1"])))
             if o.get("kind") != "bounce":
                 continue
-            if ready:
+            if ready and not _within(info.get("suspended") or (), cur[0]):
                 out.append(o)
             else:
                 info["excluded"] = info.get("excluded", 0) + 1
 
     def follow(ts: float) -> None:
         nonlocal nxt, ready
+        cur[0] = ts
         while nxt < len(timeline) and timeline[nxt][0] <= ts:
             pipe.set_camera(timeline[nxt][1])
             ready = calibration_ready(timeline[nxt][1], lim)
@@ -257,7 +286,7 @@ def judge_reports(court: CourtSpec, cameras: dict, reports: dict[str, list[Bounc
         if c.get("online") is None:
             return last.get(n)
         t = now[0]
-        if not any(a <= t <= b for a, b in c["online"]):
+        if not any(a <= t <= b for a, b in c["online"]) or _within(c.get("suspended") or (), t):
             return None
         m = None
         for t0, cam in c.get("timeline") or ():

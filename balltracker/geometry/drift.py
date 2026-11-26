@@ -17,9 +17,13 @@ How it works:
   73 corrections in an hour on the field-test recording) and acts when the points' median
   position differs from the one in use by ``min_move_px`` or more on two checks in a row (one
   check can be fooled by a player filling the view). It then snaps the moved points to the
-  painted lines (``autocal.refine_from``) and recalibrates from them. Moved more than
-  ``max_move_px``, or too few background matches: the dashboard asks for a recalibration
-  instead of guessing.
+  painted lines (``autocal.refine_from``) and recalibrates from them. A change of more than
+  ``max_move_px`` is followed only if the background matches well (``big_min_inliers``) and the
+  painted lines confirm the moved points (``big_snap_max_change_px``); field test 5 (2026-11-25):
+  two phones turned 100-400 px on their mounts and, left on their old calibrations, put bounces
+  1.5-2.5 m away from the other cameras for the rest of the session. Otherwise the status is
+  "big" (or "lost": too few background matches) and the server stops using the camera for calls
+  until it is recalibrated or back where it was.
 
 A homography is exact for every point when the camera only rotates (a phone turning or tilting
 on its mount), and exact for the ground plane under any camera move; off-plane background is
@@ -46,7 +50,9 @@ class DriftConfig:
     min_inliers: int = 60          # fewer background matches: can't tell (covered, dark, moved a lot)
     ransac_px: float = 2.0         # at full resolution
     min_move_px: float = 3.0       # keypoints moved at least this much (median): recalibrate
-    max_move_px: float = 80.0      # moved more: don't follow automatically, ask for a recalibration
+    max_move_px: float = 80.0      # a bigger change is followed only if the court lines confirm it (below)
+    big_min_inliers: int = 150     # ... with this many background matches
+    big_snap_max_change_px: float = 10.0  # ... and the line snap within this of the moved points
     snap_max_fit_px: float = 1.5   # use the line snap only if the lines fit this well ...
     snap_max_change_px: float = 6.0  # ... and it agrees with the moved points this closely
     max_rms_px: float = 3.0        # a recalibration rougher than this is not used (upkeep.MAX_RMS_PX)
@@ -164,7 +170,8 @@ class DriftTracker:
         total = max_shift_px(mot["H"], self.base)
         change = _median_dist(moved, self.applied)
         base = {"moved_px": round(change, 1), "total_px": round(total, 1), "inliers": mot["inliers"]}
-        if total > cfg.max_move_px:
+        big = change > cfg.max_move_px
+        if big and mot["inliers"] < cfg.big_min_inliers:
             self.pending = None
             return {"status": "big", **base}
         if change < cfg.min_move_px:
@@ -173,17 +180,19 @@ class DriftTracker:
         if self.pending is None or _median_dist(moved, self.pending) > cfg.min_move_px:
             self.pending = moved
             return {"status": "pending", **base}
+        res = _recalibrate(img, court, camera, moved, snap, cfg, require_snap=big)
+        if res is None:
+            return {"status": "big", **base}  # stays "big" (pending kept) until it fits or is recalibrated
         self.pending = None
         self.applied = moved
-        res = _recalibrate(img, court, camera, moved, snap, cfg)
-        if res is None:
-            return {"status": "big", **base}
         return {"status": "moved", **base, **res}
 
 
-def _recalibrate(img, court, camera, new_pts, snap, cfg) -> dict | None:
+def _recalibrate(img, court, camera, new_pts, snap, cfg, require_snap: bool = False) -> dict | None:
+    """``require_snap``: a big move is used only if the painted lines confirm it."""
     how = "image motion"
-    if snap:
+    max_change = cfg.big_snap_max_change_px if require_snap else cfg.snap_max_change_px
+    if snap or require_snap:
         from .autocal import refine_from
 
         try:
@@ -191,9 +200,11 @@ def _recalibrate(img, court, camera, new_pts, snap, cfg) -> dict | None:
         except Exception:  # pragma: no cover
             res = None
         if res is not None and res.ok and (res.debug or {}).get("fit_px", 99) <= cfg.snap_max_fit_px:
-            if _median_dist(res.points, new_pts) <= cfg.snap_max_change_px:
+            if _median_dist(res.points, new_pts) <= max_change:
                 new_pts = {k: [float(a), float(b)] for k, (a, b) in res.points.items()}
                 how = "image motion + line snap"
+    if require_snap and how != "image motion + line snap":
+        return None
     kp = court.keypoints()
     names = [k for k in new_pts if k in kp]
     try:

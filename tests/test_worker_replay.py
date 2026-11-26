@@ -3,6 +3,7 @@ camera that didn't process a bounce's frames doesn't veto it (review of defed68:
 decision log entry 28)."""
 
 import json
+from pathlib import Path
 
 import numpy as np
 
@@ -321,3 +322,21 @@ def test_a_real_far_bounce_of_a_tiny_ball_on_a_low_resolution_camera_keeps_its_c
     j.add(near, b.t + 0.3)
     (d,) = j.flush()
     assert d.call.call_text == "OUT" and len(d.bounce.camera_ids) == 2
+
+
+def test_a_calibration_history_for_cameras_the_session_doesnt_have_is_refused(tmp_path):
+    """A scrubbed counterfactual (device names) replayed against the local session (its own camera
+    names) used to be ignored silently: those cameras ran on their connect-time calibration."""
+    import json
+
+    import pytest
+
+    from balltracker.live.replay import load_session
+
+    session = Path(__file__).resolve().parents[1] / "data" / "field" / "20261122-071401"
+    if not (session / "court.json").exists():
+        pytest.skip("field data not present")
+    cal = tmp_path / "cal.jsonl"
+    cal.write_text(json.dumps({"type": "calibrated", "camera": "someone-phone", "t": 1.0}) + "\n")
+    with pytest.raises(ValueError, match="someone-phone"):
+        load_session(session, cal)

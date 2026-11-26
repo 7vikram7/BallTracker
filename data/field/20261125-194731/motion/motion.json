@@ -1,0 +1,216 @@
+[
+ {
+  "camera": "samsung",
+  "snapshots": 1191,
+  "matched": 597,
+  "px_per_deg": 23.0,
+  "epochs": [
+   {
+    "from_t": 405.61,
+    "to_t": 2011.91,
+    "minutes": 26.8,
+    "matched": 596,
+    "unmatched": 594,
+    "max_px": 99.2,
+    "end_px": 99.0,
+    "end_deg": {
+     "pan": -0.1,
+     "tilt": -3.96,
+     "roll": -0.18
+    },
+    "max_ground_err_cm": 620.1,
+    "steps": [
+     {
+      "t": 1149.85,
+      "from_px": 8.9,
+      "to_px": 14.4
+     },
+     {
+      "t": 1639.97,
+      "from_px": 17.1,
+      "to_px": 90.5
+     },
+     {
+      "t": 1656.15,
+      "from_px": 90.5,
+      "to_px": 96.5
+     }
+    ],
+    "px_at_minutes": {
+     "1": 0.1,
+     "5": 5.0,
+     "10": 7.2,
+     "20": 17.1
+    }
+   }
+  ]
+ },
+ {
+  "camera": "iphone17",
+  "snapshots": 1436,
+  "matched": 1208,
+  "px_per_deg": 24.6,
+  "epochs": [
+   {
+    "from_t": 1057.77,
+    "to_t": 4311.77,
+    "minutes": 54.2,
+    "matched": 1208,
+    "unmatched": 228,
+    "max_px": 13.6,
+    "end_px": 13.6,
+    "end_deg": {
+     "pan": 0.17,
+     "tilt": 0.59,
+     "roll": -0.46
+    },
+    "max_ground_err_cm": 117.9,
+    "steps": [],
+    "px_at_minutes": {
+     "1": 0.0,
+     "5": 0.1,
+     "10": 4.8,
+     "20": 4.8,
+     "30": 5.2,
+     "45": 6.3
+    }
+   }
+  ]
+ },
+ {
+  "camera": "iphone15pro",
+  "snapshots": 1229,
+  "matched": 841,
+  "px_per_deg": 22.7,
+  "epochs": [
+   {
+    "from_t": 1856.02,
+    "to_t": 1876.03,
+    "minutes": 0.3,
+    "matched": 11,
+    "unmatched": 0,
+    "max_px": 0.0,
+    "end_px": 0.0,
+    "end_deg": {
+     "pan": 0.0,
+     "tilt": -0.01,
+     "roll": 0.0
+    },
+    "max_ground_err_cm": 0.3,
+    "steps": [],
+    "px_at_minutes": {}
+   },
+   {
+    "from_t": 1880.03,
+    "to_t": 1916.06,
+    "minutes": 0.6,
+    "matched": 19,
+    "unmatched": 90,
+    "max_px": 0.1,
+    "end_px": 0.1,
+    "end_deg": {
+     "pan": -0.0,
+     "tilt": 0.03,
+     "roll": -0.01
+    },
+    "max_ground_err_cm": 0.5,
+    "steps": [],
+    "px_at_minutes": {}
+   },
+   {
+    "from_t": 2098.18,
+    "to_t": 4366.12,
+    "minutes": 37.8,
+    "matched": 810,
+    "unmatched": 298,
+    "max_px": 240.4,
+    "end_px": 216.3,
+    "end_deg": {
+     "pan": -8.24,
+     "tilt": -2.2,
+     "roll": -0.09
+    },
+    "max_ground_err_cm": 345.1,
+    "steps": [
+     {
+      "t": 2206.28,
+      "from_px": 0.1,
+      "to_px": 45.2
+     },
+     {
+      "t": 2218.29,
+      "from_px": 45.2,
+      "to_px": 54.5
+     },
+     {
+      "t": 2306.35,
+      "from_px": 55.7,
+      "to_px": 202.7
+     },
+     {
+      "t": 2316.36,
+      "from_px": 202.7,
+      "to_px": 89.5
+     },
+     {
+      "t": 2424.47,
+      "from_px": 89.1,
+      "to_px": 79.4
+     },
+     {
+      "t": 2434.47,
+      "from_px": 79.4,
+      "to_px": 72.7
+     },
+     {
+      "t": 2446.49,
+      "from_px": 72.7,
+      "to_px": 238.3
+     },
+     {
+      "t": 2466.52,
+      "from_px": 238.3,
+      "to_px": 229.1
+     },
+     {
+      "t": 2502.58,
+      "from_px": 230.2,
+      "to_px": 239.6
+     },
+     {
+      "t": 2654.94,
+      "from_px": 238.5,
+      "to_px": 230.9
+     },
+     {
+      "t": 3096.98,
+      "from_px": 228.6,
+      "to_px": 235.1
+     },
+     {
+      "t": 3777.21,
+      "from_px": 235.1,
+      "to_px": 229.7
+     },
+     {
+      "t": 3792.97,
+      "from_px": 229.5,
+      "to_px": 224.0
+     },
+     {
+      "t": 4287.05,
+      "from_px": 221.9,
+      "to_px": 215.7
+     }
+    ],
+    "px_at_minutes": {
+     "1": 0.1,
+     "5": 88.5,
+     "10": 231.6,
+     "20": 234.4,
+     "30": 224.9
+    }
+   }
+  ]
+ }
+]

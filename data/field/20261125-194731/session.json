@@ -1,0 +1,246 @@
+{
+  "kind": "balltracker.session",
+  "schema": 1,
+  "session": "20261125-194731",
+  "started_at": "2026-11-25T19:47:31+0530",
+  "command": "~/Vikram/BallTracker/.venv/bin/bt serve --record",
+  "host": {
+    "python": "3.12.13",
+    "platform": "macOS-26.7.3-x86_64-i386-64bit",
+    "machine": "x86_64"
+  },
+  "git": {
+    "commit": "3e96b4f35ecef0f8a7110c7701e4ecd9a818c1bd",
+    "branch": "main",
+    "changed_files": 0
+  },
+  "versions": {
+    "balltracker": "0.1.0",
+    "bounce": "0.4.0",
+    "fusion": "0.1.0",
+    "mac_detector": "motion_color_baseline 0.1.0",
+    "phone_detector": "edge_color_motion 1.0.0",
+    "protocol": 2
+  },
+  "court": {
+    "name": "pickleball",
+    "width": 6.096,
+    "length": 13.411200000000001,
+    "kitchen_depth": 2.1336,
+    "line_width": 0.0508,
+    "net_height_sideline": 0.9144,
+    "net_height_center": 0.8635999999999999,
+    "net_post_offset": 0.30479999999999996,
+    "ball_radius": 0.0371,
+    "contact_patch_radius": 0.01,
+    "scale": 1.0
+  },
+  "settings": {
+    "record": true,
+    "phone_reduction": true,
+    "detector_overrides": {},
+    "hold_s": 0.6,
+    "window_s": 0.08,
+    "corroborate": true,
+    "play_mode": "match",
+    "weak_rate": 0.4
+  },
+  "summary": {
+    "duration_s": 4390.3,
+    "cameras": [
+      {
+        "camera": "samsung",
+        "mode": "edge",
+        "connected": false,
+        "frames_in": 118950,
+        "reduced": true,
+        "skipped_by_phone": 10405,
+        "fps_in": 46.3,
+        "drops": 0,
+        "unsynced": 0,
+        "seq_gaps": 0,
+        "proc_fps": 0.0,
+        "busy": 0.0,
+        "latency_ms": null,
+        "bounces": 447,
+        "clock": {
+          "samples": 120,
+          "offset_s": 312230.679745468,
+          "rtt_ms": 20.52372900652699,
+          "uncertainty_ms": 10.261864503263496,
+          "drift_ppm": 9.434923665411642
+        },
+        "cands_per_frame": 0.0,
+        "max_tracks": 0,
+        "check_ms_per_s": 0.0,
+        "deferred_frames": 0,
+        "dropped_stale": 0,
+        "no_calib_floor": 0,
+        "skipped_frames": 0,
+        "calib_rms_px": 1.608417083646092,
+        "phone": {
+          "fps_capture": 32.47285729475383,
+          "fps_processed": 32.47285729475383,
+          "detect_ms": 23.172267939393937,
+          "phone_drops": 0,
+          "thermal": "critical",
+          "battery": 0,
+          "link_dropped": 0,
+          "kbps": 2820,
+          "reduce": {
+            "framesIn": 129328,
+            "framesOut": 118915,
+            "candsIn": 541233,
+            "candsStatic": 17497,
+            "changes": 87768
+          }
+        },
+        "device": "samsung SM-S948B",
+        "app": {
+          "app_version": "0.1.0",
+          "algo": "edge_color_motion",
+          "algo_version": "1.0.0",
+          "platform": "android"
+        },
+        "width": 1920,
+        "height": 1080,
+        "fps_req": 120.0,
+        "ts_source": "app:sensor"
+      },
+      {
+        "camera": "iphone17",
+        "mode": "edge",
+        "connected": false,
+        "frames_in": 319388,
+        "reduced": true,
+        "skipped_by_phone": 48119,
+        "fps_in": 30.0,
+        "drops": 0,
+        "unsynced": 30,
+        "seq_gaps": 0,
+        "proc_fps": 0.0,
+        "busy": 0.0,
+        "latency_ms": null,
+        "bounces": 969,
+        "clock": {
+          "samples": 120,
+          "offset_s": 181084.27934469213,
+          "rtt_ms": 6.3179949938785285,
+          "uncertainty_ms": 3.1589974969392642,
+          "drift_ppm": 49.134048610001166
+        },
+        "cands_per_frame": 0.0,
+        "max_tracks": 0,
+        "check_ms_per_s": 0.0,
+        "deferred_frames": 0,
+        "dropped_stale": 0,
+        "no_calib_floor": 0,
+        "skipped_frames": 0,
+        "calib_rms_px": 0.0523411928475282,
+        "phone": {
+          "fps_capture": 119.94841222477878,
+          "fps_processed": 119.94841222477878,
+          "detect_ms": 7.464989591666666,
+          "phone_drops": 0,
+          "thermal": "serious",
+          "battery": 0.44999998807907104,
+          "ts_source": "app:host",
+          "link_dropped": 0,
+          "kbps": 5562,
+          "reduce": {
+            "framesIn": 367507,
+            "framesOut": 319379,
+            "candsIn": 1475038,
+            "candsStatic": 67578,
+            "changes": 213403
+          }
+        },
+        "device": "Apple iPhone 17",
+        "app": {
+          "app_version": "0.1.0",
+          "algo": "edge_color_motion",
+          "algo_version": "1.0.0",
+          "platform": "ios"
+        },
+        "width": 1920,
+        "height": 1080,
+        "fps_req": 120.0,
+        "ts_source": "app:host"
+      },
+      {
+        "camera": "iphone15pro",
+        "mode": "edge",
+        "connected": false,
+        "frames_in": 192433,
+        "reduced": true,
+        "skipped_by_phone": 86272,
+        "fps_in": 64.3,
+        "drops": 0,
+        "unsynced": 66,
+        "seq_gaps": 0,
+        "proc_fps": 0.0,
+        "busy": 0.0,
+        "latency_ms": null,
+        "bounces": 353,
+        "clock": {
+          "samples": 120,
+          "offset_s": 479974.3626853642,
+          "rtt_ms": 15.6555685098283,
+          "uncertainty_ms": 7.82778425491415,
+          "drift_ppm": 36.799349248079224
+        },
+        "cands_per_frame": 0.0,
+        "max_tracks": 0,
+        "check_ms_per_s": 0.0,
+        "deferred_frames": 0,
+        "dropped_stale": 0,
+        "no_calib_floor": 0,
+        "skipped_frames": 0,
+        "calib_rms_px": 0.7391221004850245,
+        "phone": {
+          "fps_capture": 119.92105704743086,
+          "fps_processed": 99.93421420619238,
+          "detect_ms": 9.954923759999998,
+          "phone_drops": 20,
+          "thermal": "serious",
+          "battery": 0.44999998807907104,
+          "ts_source": "app:host",
+          "link_dropped": 0,
+          "kbps": 3375,
+          "reduce": {
+            "framesIn": 296658,
+            "framesOut": 205609,
+            "candsIn": 647505,
+            "candsStatic": 20379,
+            "changes": 95990
+          }
+        },
+        "device": "Apple iPhone 15 Pro",
+        "app": {
+          "app_version": "0.1.0",
+          "algo": "edge_color_motion",
+          "algo_version": "1.0.0",
+          "platform": "ios"
+        },
+        "width": 1920,
+        "height": 1080,
+        "fps_req": 120.0,
+        "ts_source": "app:host"
+      }
+    ],
+    "reports": 1769,
+    "decisions": 1321,
+    "calls": {
+      "IN": 561,
+      "UNCERTAIN": 500,
+      "suppressed": 231,
+      "OUT": 29
+    },
+    "announced": 29,
+    "latency_s": {
+      "median": 1.2717374136882427,
+      "max": 3.0286909285864567
+    }
+  },
+  "ended_at": "2026-11-25T21:00:41+0530"
+}
