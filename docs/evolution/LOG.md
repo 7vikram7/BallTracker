@@ -2527,3 +2527,12 @@ You can unplug the cable now. If the Mac changed networks after the server start
 > The cameras kept moving
 > 
 > Really need to solve for a sturdy mount which can be mounted on horizontal and vertical bars of various widths
+
+### 2026-11-26 12:57 · outcome
+
+The motion trace shows three different behaviours:
+- **Samsung:** sagged slowly downwards (5 px at 5 min, 17 px at 20 min), then dropped another 73 px at minute 27. That's 4° of downward tilt in total: the head slowly giving way under the phone's weight.
+- **iPhone 15 Pro:** turned sideways (pan) in steps: 45, 200 and then 238 px, ending 8° off. That's the clamp or holder rotating around the bar when touched.
+- **iPhone 17:** fairly stable at 14 px after 54 min, and followed automatically.
+
+Waiting on the replay comparison.
