@@ -2519,3 +2519,11 @@ The script then registers, builds and installs by itself. Leave the Mac on this 
 4. Join the same hotspot or Wi-Fi as the Mac, then scan the dashboard's QR code.
 
 You can unplug the cable now. If the Mac changed networks after the server started, restart the server first so the QR code has the right address.
+
+## 2026-11-26 12:20 · request (session 1661f7c3)
+
+> Detailed Analyse and learn from yesterdays sessions
+> 
+> The cameras kept moving
+> 
+> Really need to solve for a sturdy mount which can be mounted on horizontal and vertical bars of various widths
